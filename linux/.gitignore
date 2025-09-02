@@ -1,0 +1,14 @@
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+build/
+
+# Flutter
+flutter/ephemeral
+
+# Misc
+*.swp
+*.swo
+*.DS_Store
