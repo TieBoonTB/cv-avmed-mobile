@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../controllers/test_controller.dart';
 import 'landing_page.dart';
+import 'package:camera/camera.dart';
 
 class CameraPage extends StatefulWidget {
   final String patientCode;
@@ -17,8 +18,11 @@ class CameraPage extends StatefulWidget {
 }
 
 class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
-  bool _isCameraInitialized = true; // Simulated camera state
-  bool _isFrontCamera = true; // Track camera direction
+  // Camera controller
+  CameraController? cameraController;
+  List<CameraDescription> cameras = [];
+  bool _isCamFrontFacing = true; // Track camera direction
+  bool _isSwitching = false; // add this to your State
   
   // Test controller
   late TestController _testController;
@@ -32,6 +36,7 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     super.initState();
     _setupAnimations();
     _setupTestController();
+    _setupCameraController();
   }
 
   void _setupAnimations() {
@@ -58,6 +63,24 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     );
   }
 
+  Future<void> _setupCameraController() async {
+    List<CameraDescription> _cameras = await availableCameras();
+    if (_cameras.isNotEmpty) {
+      setState(() {
+        cameras = _cameras;
+        cameraController = CameraController(
+          _cameras.first, 
+          ResolutionPreset.medium
+          );
+      });
+      // once cam is initialized update ui
+      cameraController?.initialize().then( (_) {
+        setState(() {});
+        _isCamFrontFacing = true;
+      });
+    }
+  }
+
   // To be replaced with Azure/AWS endpoint
   void _simulateDetectionResult(String detectedLabel, double confidence) {
     if (_testController.isTestRunning) {
@@ -81,19 +104,45 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     });
   }
 
-  void _switchCamera() {
-    setState(() {
-      _isFrontCamera = !_isFrontCamera;
-    });
-    
-    // Show feedback to user
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Switched to ${_isFrontCamera ? 'front' : 'rear'} camera'),
-        duration: const Duration(seconds: 1),
-      ),
-    );
-  }
+  void _switchCamera() async {
+    if (cameras.isEmpty || _isSwitching) return;
+    setState(() => _isSwitching = true);
+
+    final wasFront = _isCamFrontFacing;
+    _isCamFrontFacing = !wasFront;
+
+    // 1) Eject old controller from the tree so CameraPreview won't use it
+    final old = cameraController;
+    setState(() => cameraController = null);
+    await old?.dispose();
+
+    // 2) Create & init new controller
+    final selected = _isCamFrontFacing ? cameras.first : cameras.last;
+    final newController = CameraController(selected, ResolutionPreset.medium);
+
+    try {
+      await newController.initialize();
+      if (!mounted) {
+        await newController.dispose();
+        return;
+      }
+      setState(() {
+        cameraController = newController;
+        _isSwitching = false;
+      });
+    } 
+    catch (e) {
+      await newController.dispose();
+      // revert state on failure
+      setState(() {
+        _isCamFrontFacing = wasFront;
+        _isSwitching = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to switch camera')),
+      );
+    }
+  }  
 
   void _startTest() {
     _testController.startTest();
@@ -293,82 +342,39 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     );
   }
 
-
-
   Widget _buildCameraPreview() {
-    if (!_isCameraInitialized) {
-      return Container(
-        height: 300,
-        color: Colors.black,
-        child: const Center(
-          child: CircularProgressIndicator(color: Colors.white),
+    // check if camera is already loaded, if not make a loading indicator
+    if (cameraController == null || cameraController?.value.isInitialized == false) {
+      return Center(
+        child: Container(
+          height: 300,
+          // color: Colors.black,
+          child: Column(
+            children: [
+              Text(
+                "Loading camera...", 
+                selectionColor: Colors.white,
+                ),
+              CircularProgressIndicator(
+                color: Colors.white
+                ),
+            ],
+          ),
         ),
       );
     }
-
-    return SizedBox(
-      height: 300,
-      child: Stack(
+    else {
+      return Stack(
         children: [
-          // Camera preview placeholder with flash overlay
-          Container(
-            width: double.infinity,
-            height: 300,
-            decoration: BoxDecoration(
-              color: Colors.black,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Stack(
-              children: [
-                // Placeholder camera preview
-                Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        _isFrontCamera ? Icons.camera_front : Icons.camera_rear,
-                        size: 60,
-                        color: Colors.white,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '${_isFrontCamera ? 'Front' : 'Rear'} Camera Preview',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Patient: ${widget.patientCode}',
-                        style: const TextStyle(
-                          color: Colors.grey,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                // Flash overlay
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 500),
-                  width: double.infinity,
-                  height: double.infinity,
-                  decoration: BoxDecoration(
-                    color: _currentFlashColor,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Camera switch button
+          CameraPreview(cameraController!),
+
+          // Top-right camera switch button
           Positioned(
             top: 10,
             right: 10,
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.7),
+                color: Colors.black.withOpacity(0.6),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: IconButton(
@@ -381,6 +387,7 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
               ),
             ),
           ),
+
           // Debug detection button (for testing)
           if (_testController.isTestRunning)
             Positioned(
@@ -407,9 +414,10 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
                 ),
               ),
             ),
+
         ],
-      ),
-    );
+      );
+    }
   }
 
   Widget _buildStepsList() {
