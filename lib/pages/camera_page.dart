@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart';
 import '../controllers/test_controller.dart';
+import '../services/detection_service.dart';
+import '../config/model_config.dart';
 import 'landing_page.dart';
 
 class CameraPage extends StatefulWidget {
@@ -23,14 +26,24 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   // Test controller
   late TestController _testController;
   
+  // Detection service
+  late DetectionService _detectionService;
+  
   // Animation controllers for flashing effects
   late AnimationController _flashController;
   Color _currentFlashColor = Colors.transparent;
+  
+  // Video player controllers
+  VideoPlayerController? _videoController;
+  String _currentVideoPath = '';
+  bool _isVideoInitialized = false;
+  bool _isDisposingVideo = false;
 
   @override
   void initState() {
     super.initState();
     _setupAnimations();
+    _setupDetectionService();
     _setupTestController();
   }
 
@@ -41,11 +54,22 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     );
   }
 
+  void _setupDetectionService() async {
+    _detectionService = DetectionService();
+    try {
+      await _detectionService.initialize(modelType: ModelType.yolov5s);
+      print('Detection service initialized with ${_detectionService.modelInfo?.name}');
+    } catch (e) {
+      print('Failed to initialize detection service: $e');
+    }
+  }
+
   void _setupTestController() {
     _testController = TestController(
       isTrial: widget.isTrial,
       onTestUpdate: () {
         setState(() {});
+        _updateInstructionVideo();
       },
       onTestComplete: _showCompletionDialog,
       onStepComplete: (isSuccess) {
@@ -56,6 +80,68 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
         }
       },
     );
+    _updateInstructionVideo();
+  }
+
+  String _getVideoPathForStep(TestStep step) {
+    // Use the video path directly from the test step
+    return step.videoPath ?? 'assets/instructions/holding-pill.mp4';
+  }
+
+  Future<void> _initializeVideo(String videoPath) async {
+    if (_currentVideoPath == videoPath) return;
+    if (videoPath.isEmpty) return;
+    if (_isDisposingVideo) return;
+    
+    // Dispose existing controller safely
+    if (_videoController != null && !_isDisposingVideo) {
+      _isDisposingVideo = true;
+      try {
+        await _videoController!.dispose();
+      } catch (e) {
+        print('Error disposing video controller: $e');
+      }
+      _videoController = null;
+      _isDisposingVideo = false;
+    }
+    
+    try {
+      _videoController = VideoPlayerController.asset(videoPath);
+      await _videoController!.initialize();
+      _videoController!.setLooping(true);
+      _videoController!.play();
+      
+      if (mounted) {
+        setState(() {
+          _currentVideoPath = videoPath;
+          _isVideoInitialized = true;
+        });
+      }
+      print('Video initialized successfully');
+    } catch (e) {
+      print('Error initializing video: $e');
+      if (mounted) {
+        setState(() {
+          _isVideoInitialized = false;
+        });
+      }
+    }
+  }
+
+  void _updateInstructionVideo() {
+    if (_testController.testSteps.isEmpty) return;
+    
+    final activeStep = _testController.isTestRunning 
+        ? _testController.testSteps.firstWhere(
+            (step) => step.isActive,
+            orElse: () => _testController.testSteps.first,
+          )
+        : _testController.testSteps.first;
+    
+    final videoPath = _getVideoPathForStep(activeStep);
+    if (videoPath.isNotEmpty) {
+      _initializeVideo(videoPath);
+    }
   }
 
   // To be replaced with Azure/AWS endpoint
@@ -95,8 +181,46 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     );
   }
 
+  void _switchModel() async {
+    try {
+      // Get current model type
+      ModelType currentType = _detectionService.currentModelType == ModelType.yolov5s 
+          ? ModelType.mock 
+          : ModelType.yolov5s;
+      
+      ModelType newType = currentType == ModelType.yolov5s 
+          ? ModelType.mock 
+          : ModelType.yolov5s;
+      
+      // Switch the model
+      await _detectionService.setModel(newType);
+      
+      // Show feedback to user
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Switched to ${_detectionService.modelInfo?.name ?? 'Unknown'} model'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Model switch completed'),
+            duration: const Duration(seconds: 1),
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error switching model: $e');
+    }
+  }
+
   void _startTest() {
     _testController.startTest();
+    _updateInstructionVideo();
   }
 
   void _confirmEndTest() {
@@ -256,49 +380,11 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     });
   }
 
-  Widget _buildTrialBanner() {
-    if (!widget.isTrial) return const SizedBox.shrink();
-    
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.95),
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 10,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.info, color: Color(0xFF0EA5E9), size: 24), // Sky blue
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              'This is a trial run. No information will be saved.',
-              style: TextStyle(
-                color: Color(0xFF1F2937), // Dark gray
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-
-
-  Widget _buildCameraPreview() {
+  Widget _buildFullScreenCamera() {
     if (!_isCameraInitialized) {
       return Container(
-        height: 300,
+        width: double.infinity,
+        height: double.infinity,
         color: Colors.black,
         child: const Center(
           child: CircularProgressIndicator(color: Colors.white),
@@ -306,275 +392,363 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       );
     }
 
-    return SizedBox(
-      height: 300,
+    return Container(
+      width: double.infinity,
+      height: double.infinity,
+      color: Colors.black,
       child: Stack(
         children: [
-          // Camera preview placeholder with flash overlay
-          Container(
-            width: double.infinity,
-            height: 300,
-            decoration: BoxDecoration(
-              color: Colors.black,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Stack(
-              children: [
-                // Placeholder camera preview
-                Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        _isFrontCamera ? Icons.camera_front : Icons.camera_rear,
-                        size: 60,
-                        color: Colors.white,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '${_isFrontCamera ? 'Front' : 'Rear'} Camera Preview',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Patient: ${widget.patientCode}',
-                        style: const TextStyle(
-                          color: Colors.grey,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                // Flash overlay
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 500),
-                  width: double.infinity,
-                  height: double.infinity,
-                  decoration: BoxDecoration(
-                    color: _currentFlashColor,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Camera switch button
-          Positioned(
-            top: 10,
-            right: 10,
+          // Full-screen camera preview
+          Positioned.fill(
             child: Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.7),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: IconButton(
-                onPressed: _switchCamera,
-                icon: const Icon(
-                  Icons.cameraswitch,
-                  color: Colors.white,
-                  size: 24,
+              color: Colors.black,
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      _isFrontCamera ? Icons.camera_front : Icons.camera_rear,
+                      size: 80,
+                      color: Colors.white.withValues(alpha: 0.7),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      '${_isFrontCamera ? 'Front' : 'Rear'} Camera Feed',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Patient: ${widget.patientCode}',
+                      style: const TextStyle(
+                        color: Colors.grey,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
           ),
-          // Debug detection button (for testing)
-          if (_testController.isTestRunning)
-            Positioned(
-              top: 10,
-              left: 10,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.green.withValues(alpha: 0.7),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: IconButton(
-                  onPressed: () {
-                    final activeStep = _testController.testSteps.firstWhere(
-                      (step) => step.isActive,
-                      orElse: () => _testController.testSteps.first,
-                    );
-                    _simulateDetectionResult(activeStep.targetLabel, 0.8);
-                  },
-                  icon: const Icon(
-                    Icons.visibility,
-                    color: Colors.white,
-                    size: 24,
-                  ),
-                ),
-              ),
-            ),
+          // Flash overlay
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 500),
+            width: double.infinity,
+            height: double.infinity,
+            color: _currentFlashColor,
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildStepsList() {
-    return Column(
-      children: _testController.testSteps.asMap().entries.map((entry) {
-        TestStep step = entry.value;
-        
-        return Container(
-          margin: const EdgeInsets.symmetric(vertical: 4),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          decoration: BoxDecoration(
-            color: step.isActive 
-                ? Colors.white.withValues(alpha: 0.95)
-                : step.isDone
-                    ? (step.isSuccess ? Colors.white.withValues(alpha: 0.9) : Colors.white.withValues(alpha: 0.85))
-                    : Colors.white.withValues(alpha: 0.7),
-            borderRadius: BorderRadius.circular(12),
-            border: step.isActive 
-                ? Border.all(color: Color(0xFFA855F7), width: 2) // Purple border
-                : step.isDone && step.isSuccess
-                    ? Border.all(color: Colors.green, width: 2)
-                    : step.isDone && !step.isSuccess
-                        ? Border.all(color: Colors.red, width: 2)
-                        : Border.all(color: Colors.white.withValues(alpha: 0.3), width: 1),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.1),
-                blurRadius: 8,
-                offset: Offset(0, 2),
-              ),
-            ],
+  Widget _buildVideoInstructionsWindow() {
+    final activeStep = _testController.isTestRunning 
+        ? _testController.testSteps.firstWhere(
+            (step) => step.isActive,
+            orElse: () => _testController.testSteps.first,
+          )
+        : _testController.testSteps.first;
+
+    return Container(
+      width: 200,
+      height: 150,
+      decoration: BoxDecoration(
+        color: Colors.black,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.5),
+            blurRadius: 20,
+            offset: Offset(0, 10),
           ),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  // Step icon
-                  Container(
-                    width: 28,
-                    height: 28,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: step.isDone
-                          ? (step.isSuccess ? Colors.green : Colors.red)
-                          : step.isActive
-                              ? Color(0xFFA855F7) // Purple
-                              : Color(0xFF6B7280), // Gray
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.1),
-                          blurRadius: 4,
-                          offset: Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Icon(
-                      step.isDone
-                          ? (step.isSuccess ? Icons.check : Icons.close)
-                          : step.isActive
-                              ? Icons.play_arrow
-                              : Icons.circle,
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Stack(
+          children: [
+            // Video player
+            if (_isVideoInitialized && _videoController != null)
+              Positioned.fill(
+                child: FittedBox(
+                  fit: BoxFit.cover,
+                  child: SizedBox(
+                    width: _videoController!.value.size.width,
+                    height: _videoController!.value.size.height,
+                    child: VideoPlayer(_videoController!),
+                  ),
+                ),
+              )
+            else
+              // Fallback when video is loading
+              Container(
+                width: double.infinity,
+                height: double.infinity,
+                color: Color(0xFF1F2937),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(
                       color: Colors.white,
-                      size: 18,
+                      strokeWidth: 2,
                     ),
-                  ),
-                  const SizedBox(width: 16),
-                  // Step label
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          step.label,
-                          style: TextStyle(
-                            color: step.isActive 
-                                ? Color(0xFFA855F7) // Purple for active
-                                : Color(0xFF1F2937), // Dark gray for others
-                            fontSize: 15,
-                            fontWeight: step.isActive ? FontWeight.bold : FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  // Spinner for active step
-                  if (step.isActive && step.targetFrameCount > 0) ...[
-                    const SizedBox(width: 8),
-                    SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFA855F7)),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Loading...',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
                       ),
                     ),
                   ],
-                ],
+                ),
               ),
-            ],
+            
+            // Subtitle overlay
+            Positioned(
+              bottom: 8,
+              left: 8,
+              right: 8,
+              child: Container(
+                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.7),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  activeStep.label,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+            
+            // Active step indicator
+            if (_testController.isTestRunning && activeStep.isActive)
+              Positioned(
+                top: 8,
+                left: 8,
+                child: Container(
+                  padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.red,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    'LIVE',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            
+            // Video controls overlay (play/pause)
+            if (_isVideoInitialized && _videoController != null)
+              Positioned.fill(
+                child: GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      if (_videoController!.value.isPlaying) {
+                        _videoController!.pause();
+                      } else {
+                        _videoController!.play();
+                      }
+                    });
+                  },
+                  child: Container(
+                    color: Colors.transparent,
+                    child: Center(
+                      child: AnimatedOpacity(
+                        opacity: _videoController!.value.isPlaying ? 0.0 : 0.8,
+                        duration: Duration(milliseconds: 300),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.6),
+                            shape: BoxShape.circle,
+                          ),
+                          padding: EdgeInsets.all(8),
+                          child: Icon(
+                            _videoController!.value.isPlaying ? Icons.pause : Icons.play_arrow,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFloatingControls() {
+    return Column(
+      children: [
+        // Camera switch button
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.7),
+            shape: BoxShape.circle,
           ),
-        );
-      }).toList(),
+          child: IconButton(
+            onPressed: _switchCamera,
+            icon: const Icon(
+              Icons.cameraswitch,
+              color: Colors.white,
+              size: 28,
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        // Model switch button
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.purple.withValues(alpha: 0.7),
+            shape: BoxShape.circle,
+          ),
+          child: IconButton(
+            onPressed: _switchModel,
+            icon: const Icon(
+              Icons.swap_horiz,
+              color: Colors.white,
+              size: 28,
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        // Debug detection button (for testing)
+        if (_testController.isTestRunning)
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.green.withValues(alpha: 0.7),
+              shape: BoxShape.circle,
+            ),
+            child: IconButton(
+              onPressed: () {
+                final activeStep = _testController.testSteps.firstWhere(
+                  (step) => step.isActive,
+                  orElse: () => _testController.testSteps.first,
+                );
+                _simulateDetectionResult(activeStep.targetLabel, 0.8);
+              },
+              icon: const Icon(
+                Icons.visibility,
+                color: Colors.white,
+                size: 28,
+              ),
+            ),
+          ),
+      ],
     );
   }
 
   Widget _buildActionButton() {
     if (!_testController.hasTestStarted) {
-      return SizedBox(
-        width: double.infinity,
+      return Container(
         height: 52,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(26),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.3),
+              blurRadius: 10,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
         child: ElevatedButton(
           onPressed: _startTest,
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.white,
-            foregroundColor: Color(0xFFA855F7), // Purple text
+            foregroundColor: Color(0xFFA855F7),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(26),
             ),
-            elevation: 8,
-            shadowColor: Colors.black.withValues(alpha: 0.3),
+            elevation: 0,
+            shadowColor: Colors.transparent,
           ),
           child: const Text(
-            'Start',
+            'Start Test',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
         ),
       );
     } else if (!_testController.isCompleted) {
-      return SizedBox(
-        width: double.infinity,
+      return Container(
         height: 52,
+        decoration: BoxDecoration(
+          color: Colors.red[500],
+          borderRadius: BorderRadius.circular(26),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.red.withValues(alpha: 0.4),
+              blurRadius: 10,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
         child: ElevatedButton(
           onPressed: _confirmEndTest,
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.red[500],
             foregroundColor: Colors.white,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(26),
             ),
-            elevation: 8,
-            shadowColor: Colors.red.withValues(alpha: 0.3),
+            elevation: 0,
+            shadowColor: Colors.transparent,
           ),
           child: const Text(
-            'End',
+            'End Test',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
         ),
       );
     } else {
-      return SizedBox(
-        width: double.infinity,
+      return Container(
         height: 52,
+        decoration: BoxDecoration(
+          color: Colors.green[500],
+          borderRadius: BorderRadius.circular(26),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.green.withValues(alpha: 0.4),
+              blurRadius: 10,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
         child: ElevatedButton(
           onPressed: _showCompletionDialog,
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.green[500],
             foregroundColor: Colors.white,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(26),
             ),
-            elevation: 8,
-            shadowColor: Colors.green.withValues(alpha: 0.3),
+            elevation: 0,
+            shadowColor: Colors.transparent,
           ),
           child: const Text(
-            'Complete',
+            'Test Complete',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
         ),
@@ -592,101 +766,64 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
         foregroundColor: Colors.white,
         elevation: 0,
       ),
-      body: Container(
-        width: double.infinity,
-        height: MediaQuery.of(context).size.height,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment(-0.5, -1.0),
-            end: Alignment(0.5, 1.0),
-            colors: [
-              Color(0xFFEC4899), // pink-500
-              Color(0xFFA855F7), // purple-500
-              Color(0xFF0EA5E9), // sky-500
-            ],
-          ),
-        ),
-        child: SafeArea(
-          child: Stack(
-            children: [
-              SingleChildScrollView(
-            child: Column(
-              children: [
-                // Trial banner
-                _buildTrialBanner(),
-                
-                const SizedBox(height: 20),
-                
-                // Title
-                Text(
-                  'Real Time Detection',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    shadows: [
-                      Shadow(
-                        blurRadius: 10.0,
-                        color: Colors.black.withValues(alpha: 0.3),
-                        offset: Offset(2.0, 2.0),
+      body: Stack(
+        children: [
+          // Full-screen camera feed
+          _buildFullScreenCamera(),
+          
+          // Trial banner (top overlay)
+          if (widget.isTrial)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 60,
+              left: 16,
+              right: 16,
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.8),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.blue.withValues(alpha: 0.5), width: 1),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.info, color: Color(0xFF0EA5E9), size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Trial Mode - No data will be saved',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
                       ),
-                    ],
-                  ),
-                  textAlign: TextAlign.center,
+                    ),
+                  ],
                 ),
-                
-                const SizedBox(height: 20),
-                
-                // Camera preview (stacked vertically at top)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: _buildCameraPreview(),
-                ),
-                
-                const SizedBox(height: 20),
-                
-                // Steps list (below camera)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Test Steps:',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                          shadows: [
-                            Shadow(
-                              blurRadius: 8.0,
-                              color: Colors.black.withValues(alpha: 0.3),
-                              offset: Offset(1.0, 1.0),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      _buildStepsList(),
-                    ],
-                  ),
-                ),
-                
-                const SizedBox(height: 20),
-                
-                // Action button
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: _buildActionButton(),
-                ),
-                
-                const SizedBox(height: 20),
-              ],
+              ),
             ),
+          
+          // Video instructions window (top-right corner, FaceTime style)
+          Positioned(
+            top: widget.isTrial ? 140 : MediaQuery.of(context).padding.top + 80,
+            right: 16,
+            child: _buildVideoInstructionsWindow(),
+          ),
+          
+          // Floating controls (right side)
+          Positioned(
+            top: widget.isTrial ? 310 : MediaQuery.of(context).padding.top + 250,
+            right: 16,
+            child: _buildFloatingControls(),
+          ),
+          
+          // Action button (bottom center)
+          Positioned(
+            bottom: 40,
+            left: 16,
+            right: 16,
+            child: _buildActionButton(),
           ),
         ],
-        ),
-        ),
       ),
     );
   }
@@ -694,6 +831,15 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   @override
   void dispose() {
     _flashController.dispose();
+    _detectionService.dispose();
+    if (_videoController != null && !_isDisposingVideo) {
+      _isDisposingVideo = true;
+      try {
+        _videoController!.dispose();
+      } catch (e) {
+        print('Error disposing video controller: $e');
+      }
+    }
     super.dispose();
   }
 }
