@@ -1,6 +1,6 @@
 name: namer_app
 description: "A new Flutter project."
-publish_to: 'none'
+publish_to: "none"
 version: 0.1.0
 
 environment:
@@ -12,6 +12,10 @@ dependencies:
   english_words: ^4.0.0
   provider: ^6.1.5
   video_player: ^2.8.1
+  # ML dependencies
+  tflite_flutter: ^0.11.0
+  image: ^4.1.7
+  camera: ^0.10.5+9
 
 dev_dependencies:
   flutter_test:
@@ -20,8 +24,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  
+
   # Assets
   assets:
     - assets/videos/
     - assets/images/
+    - assets/instructions/
+    - assets/models/
