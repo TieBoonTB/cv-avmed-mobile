@@ -5,7 +5,6 @@ import '../controllers/camera_feed_controller.dart';
 import '../services/detection_service.dart';
 import '../config/model_config.dart';
 import 'landing_page.dart';
-import 'package:camera/camera.dart';
 import 'package:get/get.dart';
 
 class CameraPage extends StatefulWidget {
@@ -377,8 +376,15 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // Full-screen camera preview with improved layout
-          CameraFeedView(),
+          // Add padding around the camera feed
+          Padding(
+            padding: const EdgeInsets.all(16.0), // Adjust padding as needed
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: CameraFeedView(),
+            ),
+          ),
+          
           // Flash overlay
           AnimatedContainer(
             duration: const Duration(milliseconds: 500),
