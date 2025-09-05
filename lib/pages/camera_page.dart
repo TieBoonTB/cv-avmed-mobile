@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import '../controllers/test_controller.dart';
+import '../controllers/camera_feed_controller.dart';
 import '../services/detection_service.dart';
 import '../config/model_config.dart';
 import 'landing_page.dart';
+import 'package:camera/camera.dart';
+import 'package:get/get.dart';
 
 class CameraPage extends StatefulWidget {
   final String patientCode;
@@ -20,8 +23,8 @@ class CameraPage extends StatefulWidget {
 }
 
 class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
-  bool _isCameraInitialized = true; // Simulated camera state
-  bool _isFrontCamera = true; // Track camera direction
+  // Camera controller
+  final CameraFeedController _cameraFeedController = Get.put(CameraFeedController());
   
   // Test controller
   late TestController _testController;
@@ -165,20 +168,6 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     setState(() {
       _currentFlashColor = Colors.transparent;
     });
-  }
-
-  void _switchCamera() {
-    setState(() {
-      _isFrontCamera = !_isFrontCamera;
-    });
-    
-    // Show feedback to user
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Switched to ${_isFrontCamera ? 'front' : 'rear'} camera'),
-        duration: const Duration(seconds: 1),
-      ),
-    );
   }
 
   void _switchModel() async {
@@ -381,17 +370,6 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   }
 
   Widget _buildFullScreenCamera() {
-    if (!_isCameraInitialized) {
-      return Container(
-        width: double.infinity,
-        height: double.infinity,
-        color: Colors.black,
-        child: const Center(
-          child: CircularProgressIndicator(color: Colors.white),
-        ),
-      );
-    }
-
     return Container(
       width: double.infinity,
       height: double.infinity,
@@ -399,40 +377,41 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       child: Stack(
         children: [
           // Full-screen camera preview
-          Positioned.fill(
-            child: Container(
-              color: Colors.black,
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      _isFrontCamera ? Icons.camera_front : Icons.camera_rear,
-                      size: 80,
-                      color: Colors.white.withValues(alpha: 0.7),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      '${_isFrontCamera ? 'Front' : 'Rear'} Camera Feed',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Patient: ${widget.patientCode}',
-                      style: const TextStyle(
-                        color: Colors.grey,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+          CameraFeedView(),
+          // Positioned.fill(
+          //   child: Container(
+          //     color: Colors.black,
+          //     child: Center(
+          //       child: Column(
+          //         mainAxisAlignment: MainAxisAlignment.center,
+          //         children: [
+          //           Icon(
+          //             _cameraFeedController.isFrontCamera ? Icons.camera_front : Icons.camera_rear,
+          //             size: 80,
+          //             color: Colors.white.withValues(alpha: 0.7),
+          //           ),
+          //           const SizedBox(height: 16),
+          //           Text(
+          //             '${_cameraFeedController.isFrontCamera ? 'Front' : 'Rear'} Camera Feed',
+          //             style: const TextStyle(
+          //               color: Colors.white,
+          //               fontSize: 18,
+          //               fontWeight: FontWeight.w500,
+          //             ),
+          //           ),
+          //           const SizedBox(height: 8),
+          //           Text(
+          //             'Patient: ${widget.patientCode}',
+          //             style: const TextStyle(
+          //               color: Colors.grey,
+          //               fontSize: 14,
+          //             ),
+          //           ),
+          //         ],
+          //       ),
+          //     ),
+          //   ),
+          // ),
           // Flash overlay
           AnimatedContainer(
             duration: const Duration(milliseconds: 500),
@@ -608,7 +587,7 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
             shape: BoxShape.circle,
           ),
           child: IconButton(
-            onPressed: _switchCamera,
+            onPressed: _cameraFeedController.switchCamera,
             icon: const Icon(
               Icons.cameraswitch,
               color: Colors.white,
