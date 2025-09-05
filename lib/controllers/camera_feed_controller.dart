@@ -69,7 +69,37 @@ class CameraFeedController extends GetxController {
     if (cameraController == null || !isInitialized.value) {
       return const Center(child: CircularProgressIndicator());
     }
-    return CameraPreview(cameraController!);
+    
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final previewAspectRatio = cameraController!.value.previewSize!.height / 
+                                  cameraController!.value.previewSize!.width;
+        final screenWidth = constraints.maxWidth;
+        final screenHeight = constraints.maxHeight;
+        final screenAspectRatio = screenHeight / screenWidth;
+        
+        // For portrait mode, crop sides if needed (like FaceTime)
+        var scale = screenAspectRatio / previewAspectRatio;
+        
+        // Adjust scale to avoid too much cropping
+        if (scale > 1.5) {
+          scale = 1.5;  // Limit scale to prevent excessive zoom
+        }
+        
+        return Container(
+          color: Colors.black,
+          child: Transform.scale(
+            scale: scale,
+            child: Center(
+              child: AspectRatio(
+                aspectRatio: 1 / previewAspectRatio,
+                child: CameraPreview(cameraController!),
+              ),
+            ),
+          ),
+        );
+      }
+    );
   }
 
   @override
@@ -80,18 +110,24 @@ class CameraFeedController extends GetxController {
 }
 
 class CameraFeedView extends StatelessWidget {
-  final CameraFeedController controller = Get.put(CameraFeedController());
+  final CameraFeedController controller;
 
-  CameraFeedView({super.key});
+  CameraFeedView({super.key}) : controller = Get.put(CameraFeedController()) {
+    // Initialize camera on first use
+    if (!controller.isInitialized.value) {
+      controller.initializeCamera();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Obx(() {
       if (!controller.isInitialized.value) {
-        controller.initializeCamera();
         return const Center(child: CircularProgressIndicator());
       }
-      return controller.getCameraPreview();
+      return SizedBox.expand(
+        child: controller.getCameraPreview(),
+      );
     });
   }
 }

@@ -375,48 +375,13 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       height: double.infinity,
       color: Colors.black,
       child: Stack(
+        fit: StackFit.expand,
         children: [
-          // Full-screen camera preview
+          // Full-screen camera preview with improved layout
           CameraFeedView(),
-          // Positioned.fill(
-          //   child: Container(
-          //     color: Colors.black,
-          //     child: Center(
-          //       child: Column(
-          //         mainAxisAlignment: MainAxisAlignment.center,
-          //         children: [
-          //           Icon(
-          //             _cameraFeedController.isFrontCamera ? Icons.camera_front : Icons.camera_rear,
-          //             size: 80,
-          //             color: Colors.white.withValues(alpha: 0.7),
-          //           ),
-          //           const SizedBox(height: 16),
-          //           Text(
-          //             '${_cameraFeedController.isFrontCamera ? 'Front' : 'Rear'} Camera Feed',
-          //             style: const TextStyle(
-          //               color: Colors.white,
-          //               fontSize: 18,
-          //               fontWeight: FontWeight.w500,
-          //             ),
-          //           ),
-          //           const SizedBox(height: 8),
-          //           Text(
-          //             'Patient: ${widget.patientCode}',
-          //             style: const TextStyle(
-          //               color: Colors.grey,
-          //               fontSize: 14,
-          //             ),
-          //           ),
-          //         ],
-          //       ),
-          //     ),
-          //   ),
-          // ),
           // Flash overlay
           AnimatedContainer(
             duration: const Duration(milliseconds: 500),
-            width: double.infinity,
-            height: double.infinity,
             color: _currentFlashColor,
           ),
         ],
