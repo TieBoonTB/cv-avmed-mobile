@@ -10,6 +10,11 @@ class CameraFeedController extends GetxController {
   List<CameraDescription> _cameras = [];
   bool _isSwitching = false;
 
+  bool get isFrontCamera => _isFrontCamera;
+  
+  /// Get the current camera image for external processing
+  CameraImage? get currentImage => lastImage.value;
+
   Future<void> initializeCamera() async {
     _cameras = await availableCameras();
     await _initController(_isFrontCamera);
@@ -148,64 +153,6 @@ class CameraFeedController extends GetxController {
     }
   }
 
-  Widget getCameraPreview() {
-    // Handle uninitialized states
-    if (!isInitialized.value) {
-      return const Center(
-        child: CircularProgressIndicator(color: Colors.orange),
-      );
-    }
-    
-    // Handle null controller
-    if (cameraController == null) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.no_photography, size: 48, color: Colors.white70),
-            SizedBox(height: 16),
-            Text(
-              'Camera not available',
-              style: TextStyle(color: Colors.white, fontSize: 16),
-            ),
-          ],
-        ),
-      );
-    }
-    
-    // Try to create the camera preview with error handling
-    try {
-      if (!cameraController!.value.isInitialized) {
-        return const Center(
-          child: CircularProgressIndicator(color: Colors.white),
-        );
-      }
-      return CameraPreview(cameraController!);
-    } catch (e) {
-      debugPrint('Error creating CameraPreview widget: $e');
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.error, size: 48, color: Colors.red.withOpacity(0.7)),
-            SizedBox(height: 16),
-            Text(
-              'Camera Error',
-              style: TextStyle(color: Colors.white, fontSize: 16),
-            ),
-            SizedBox(height: 8),
-            Text(
-              e.toString(),
-              style: TextStyle(color: Colors.white70, fontSize: 12),
-              maxLines: 3,
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      );
-    }
-  }
-
   @override
   void onClose() {
     cameraController?.dispose();
@@ -278,11 +225,41 @@ class _CameraFeedViewState extends State<CameraFeedView> {
         );
       }
       
-      // Return the camera preview if initialized
+      // Handle null controller
+      if (controller.cameraController == null) {
+        return Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.no_photography, size: 48, color: Colors.white70),
+              SizedBox(height: 16),
+              Text(
+                'Camera not available',
+                style: TextStyle(color: Colors.white, fontSize: 16),
+              ),
+              SizedBox(height: 8),
+              TextButton(
+                onPressed: () {
+                  _hasAttemptedInitialization = false;
+                  _initializeCamera();
+                },
+                child: Text('Retry', style: TextStyle(color: Colors.blue)),
+              ),
+            ],
+          ),
+        );
+      }
+      
+      // Try to create the camera preview with error handling
       try {
-        return controller.getCameraPreview();
+        if (!controller.cameraController!.value.isInitialized) {
+          return const Center(
+            child: CircularProgressIndicator(color: Colors.white),
+          );
+        }
+        return CameraPreview(controller.cameraController!);
       } catch (e) {
-        debugPrint('Error building camera preview: $e');
+        debugPrint('Error creating CameraPreview widget: $e');
         return Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -290,6 +267,13 @@ class _CameraFeedViewState extends State<CameraFeedView> {
               Icon(Icons.error_outline, size: 48, color: Colors.red),
               SizedBox(height: 16),
               Text('Camera Error', style: TextStyle(color: Colors.white, fontSize: 18)),
+              SizedBox(height: 8),
+              Text(
+                e.toString(),
+                style: TextStyle(color: Colors.white70, fontSize: 12),
+                maxLines: 3,
+                textAlign: TextAlign.center,
+              ),
               SizedBox(height: 8),
               TextButton(
                 onPressed: () {
