@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:namer_app/controllers/camera_feed_controller.dart';
 import '../controllers/test_controller.dart';
 import 'landing_page.dart';
 import 'package:camera/camera.dart';
+import 'package:get/get.dart';
 
 class CameraPage extends StatefulWidget {
   final String patientCode;
@@ -19,10 +21,7 @@ class CameraPage extends StatefulWidget {
 
 class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   // Camera controller
-  CameraController? cameraController;
-  List<CameraDescription> cameras = [];
-  bool _isCamFrontFacing = true; // Track camera direction
-  bool _isSwitching = false; // add this to your State
+  final CameraFeedController _cameraFeedController = Get.put(CameraFeedController());
   
   // Test controller
   late TestController _testController;
@@ -36,7 +35,6 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     super.initState();
     _setupAnimations();
     _setupTestController();
-    _setupCameraController();
   }
 
   void _setupAnimations() {
@@ -63,24 +61,6 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     );
   }
 
-  Future<void> _setupCameraController() async {
-    List<CameraDescription> _cameras = await availableCameras();
-    if (_cameras.isNotEmpty) {
-      setState(() {
-        cameras = _cameras;
-        cameraController = CameraController(
-          _cameras.first, 
-          ResolutionPreset.medium
-          );
-      });
-      // once cam is initialized update ui
-      cameraController?.initialize().then( (_) {
-        setState(() {});
-        _isCamFrontFacing = true;
-      });
-    }
-  }
-
   // To be replaced with Azure/AWS endpoint
   void _simulateDetectionResult(String detectedLabel, double confidence) {
     if (_testController.isTestRunning) {
@@ -103,46 +83,6 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       _currentFlashColor = Colors.transparent;
     });
   }
-
-  void _switchCamera() async {
-    if (cameras.isEmpty || _isSwitching) return;
-    setState(() => _isSwitching = true);
-
-    final wasFront = _isCamFrontFacing;
-    _isCamFrontFacing = !wasFront;
-
-    // 1) Eject old controller from the tree so CameraPreview won't use it
-    final old = cameraController;
-    setState(() => cameraController = null);
-    await old?.dispose();
-
-    // 2) Create & init new controller
-    final selected = _isCamFrontFacing ? cameras.first : cameras.last;
-    final newController = CameraController(selected, ResolutionPreset.medium);
-
-    try {
-      await newController.initialize();
-      if (!mounted) {
-        await newController.dispose();
-        return;
-      }
-      setState(() {
-        cameraController = newController;
-        _isSwitching = false;
-      });
-    } 
-    catch (e) {
-      await newController.dispose();
-      // revert state on failure
-      setState(() {
-        _isCamFrontFacing = wasFront;
-        _isSwitching = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to switch camera')),
-      );
-    }
-  }  
 
   void _startTest() {
     _testController.startTest();
@@ -343,44 +283,50 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   }
 
   Widget _buildCameraPreview() {
-    // check if camera is already loaded, if not make a loading indicator
-    if (cameraController == null || cameraController?.value.isInitialized == false) {
-      return Center(
-        child: Container(
-          height: 300,
-          // color: Colors.black,
-          child: Column(
-            children: [
-              Text(
-                "Loading camera...", 
-                selectionColor: Colors.white,
-                ),
-              CircularProgressIndicator(
-                color: Colors.white
-                ),
-            ],
+    return Stack(
+      children: [
+        CameraFeedView(),
+
+        // Top-right camera switch button
+        Positioned(
+          top: 10,
+          right: 10,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.6),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: IconButton(
+              onPressed: _cameraFeedController.switchCamera,
+              icon: const Icon(
+                Icons.cameraswitch,
+                color: Colors.white,
+                size: 24,
+              ),
+            ),
           ),
         ),
-      );
-    }
-    else {
-      return Stack(
-        children: [
-          CameraPreview(cameraController!),
 
-          // Top-right camera switch button
+        // Debug detection button (for testing)
+        if (_testController.isTestRunning)
           Positioned(
             top: 10,
-            right: 10,
+            left: 10,
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.6),
+                color: Colors.green.withValues(alpha: 0.7),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: IconButton(
-                onPressed: _switchCamera,
+                onPressed: () {
+                  final activeStep = _testController.testSteps.firstWhere(
+                    (step) => step.isActive,
+                    orElse: () => _testController.testSteps.first,
+                  );
+                  _simulateDetectionResult(activeStep.targetLabel, 0.8);
+                },
                 icon: const Icon(
-                  Icons.cameraswitch,
+                  Icons.visibility,
                   color: Colors.white,
                   size: 24,
                 ),
@@ -388,36 +334,8 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
             ),
           ),
 
-          // Debug detection button (for testing)
-          if (_testController.isTestRunning)
-            Positioned(
-              top: 10,
-              left: 10,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.green.withValues(alpha: 0.7),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: IconButton(
-                  onPressed: () {
-                    final activeStep = _testController.testSteps.firstWhere(
-                      (step) => step.isActive,
-                      orElse: () => _testController.testSteps.first,
-                    );
-                    _simulateDetectionResult(activeStep.targetLabel, 0.8);
-                  },
-                  icon: const Icon(
-                    Icons.visibility,
-                    color: Colors.white,
-                    size: 24,
-                  ),
-                ),
-              ),
-            ),
-
-        ],
-      );
-    }
+      ],
+    );
   }
 
   Widget _buildStepsList() {
