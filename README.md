@@ -72,7 +72,6 @@ lib/
 │   ├── base_model.dart                    # Abstract ML model interface
 │   ├── mock_model.dart                    # Mock model for testing
 │   ├── yolov5s_model.dart                 # YOLOv5 TensorFlow Lite model
-│   └── model_factory.dart                 # Factory for creating models
 ├── pages/
 │   ├── landing_page.dart                  # Welcome screen
 │   ├── guide_page.dart                    # Video instructions and survey
