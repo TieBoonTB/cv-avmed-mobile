@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
+import 'dart:typed_data';
 import '../services/base_detection_service.dart';
 import '../types/detection_types.dart';
 import '../utils/camera_image_utils.dart';
@@ -168,8 +169,29 @@ abstract class BaseTestController {
     
     // Detection loop
     while (_isTestRunning && DateTime.now().difference(stepStartTime) < maxDuration) {
-      // Get current detections from the detection service
-      final detections = await _detectionService.getCurrentDetections();
+      List<DetectionResult> detections;
+      
+      if (_detectionService.serviceType.contains('Mock')) {
+        // For mock detection service, generate fresh detections each time
+        try {
+          // Create dummy frame data for mock processing
+          final dummyFrameData = Uint8List(100); // Mock frame data
+          detections = await _detectionService.processFrame(dummyFrameData, 480, 640);
+        } catch (e) {
+          print('Error processing mock frame: $e');
+          detections = [];
+        }
+      } else {
+        // For real detection services, use cached results from camera frame processing
+        // This ensures we don't interfere with the camera frame processing pipeline
+        detections = await _detectionService.getCurrentDetections();
+        
+        // If cache is empty and this is a real detection service, 
+        // it might indicate camera frame processing isn't working
+        if (detections.isEmpty) {
+          print('Warning: No detections in cache for ${_detectionService.serviceType}');
+        }
+      }
       
       // Process detections using subclass-specific logic
       if (processDetectionResult(detections, step)) {
@@ -183,7 +205,7 @@ abstract class BaseTestController {
       }
       
       // Wait before next detection check
-      await Future.delayed(const Duration(milliseconds: 100));
+      await Future.delayed(const Duration(milliseconds: 100)); // Detection Loop Checking: 100ms
     }
     
     return false; // Timeout or failed to meet target
@@ -271,8 +293,8 @@ class TestStep {
     this.isDone = false,
     this.isSuccess = false,
   }) {
-    // Calculate target frame count (assuming 30 FPS)
-    targetFrameCount = (targetTime * 30).round();
+    // Calculate target frame count based on actual detection rate (10 FPS = 100ms intervals)
+    targetFrameCount = (targetTime * 10).round();
   }
   
   double get progress => targetFrameCount > 0 ? detectedFrameCount / targetFrameCount : 0.0;

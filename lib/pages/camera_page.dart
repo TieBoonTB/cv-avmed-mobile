@@ -122,7 +122,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   }
 
   void _startFrameProcessing() {
-    _frameTimer = Timer.periodic(const Duration(milliseconds: 200), (timer) {
+    _frameTimer = Timer.periodic(const Duration(milliseconds: 200), (timer) { // Camera Frame Processing: 200ms
       if (!mounted) {
         timer.cancel();
         return;
