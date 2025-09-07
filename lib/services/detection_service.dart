@@ -3,7 +3,15 @@ import 'dart:typed_data';
 import '../types/detection_types.dart';
 import '../config/model_config.dart';
 import '../models/base_model.dart';
+import '../models/model_factory.dart';
 
+/// DEPRECATED: This class has been replaced by the new architecture.
+/// Use specific detection services instead:
+/// - MockDetectionService for testing
+/// - YOLOv5DetectionService for object detection
+/// 
+/// See ARCHITECTURE.md for migration guide.
+@Deprecated('Use MockDetectionService or YOLOv5DetectionService instead')
 /// High-level detection service that manages ML models
 class DetectionService {
   static const int framesPerSecond = 30;

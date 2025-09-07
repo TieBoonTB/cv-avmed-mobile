@@ -1,5 +1,14 @@
 import 'package:flutter/material.dart';
 
+/// DEPRECATED: This class has been replaced by the new architecture.
+/// Use MedicationTestController extending BaseTestController instead.
+/// 
+/// See:
+/// - lib/controllers/base_test_controller.dart
+/// - lib/controllers/medication_test_controller.dart
+/// - lib/controllers/object_detection_test_controller.dart
+/// - ARCHITECTURE.md for detailed documentation
+@Deprecated('Use MedicationTestController or ObjectDetectionTestController instead')
 class StepConstants {
   static const String pill = 'pill';
   static const String pillOnTongue = 'pill on tongue';
@@ -10,6 +19,9 @@ class StepConstants {
   static const String noPillUnderTongue = 'no pill under tongue';
 }
 
+/// DEPRECATED: This class has been replaced by the new architecture.
+/// Use MedicationTestController extending BaseTestController instead.
+@Deprecated('Use MedicationTestController or ObjectDetectionTestController instead')
 class TestStep {
   final String label;
   final String targetLabel;
@@ -46,6 +58,30 @@ class TestStep {
   bool get isTargetReached => detectedFrameCount >= targetFrameCount;
 }
 
+/// DEPRECATED: This class has been replaced by the new architecture.
+/// Use MedicationTestController extending BaseTestController instead.
+/// 
+/// The new architecture provides:
+/// - Abstract base classes for extensibility
+/// - Separate detection services for different models
+/// - Better separation of concerns
+/// - Easier testing and maintenance
+/// 
+/// Migration example:
+/// ```dart
+/// // Old way
+/// final controller = TestController(isTrial: true);
+/// 
+/// // New way
+/// final controller = MedicationTestController(
+///   isTrial: true,
+///   onTestUpdate: () => setState(() {}),
+///   onTestComplete: () => print('Done'),
+///   onStepComplete: (success) => print('Step: $success'),
+/// );
+/// await controller.initialize();
+/// ```
+@Deprecated('Use MedicationTestController or ObjectDetectionTestController instead')
 class TestController {
   final bool isTrial;
   final VoidCallback? onTestUpdate;

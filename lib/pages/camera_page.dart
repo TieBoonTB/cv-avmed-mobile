@@ -1,52 +1,57 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
-import '../controllers/test_controller.dart';
-import '../controllers/camera_feed_controller.dart';
-import '../services/detection_service.dart';
-import '../config/model_config.dart';
-import 'landing_page.dart';
 import 'package:get/get.dart';
+import 'dart:async';
+import '../controllers/base_test_controller.dart';
+import '../controllers/camera_feed_controller.dart';
+import '../utils/test_controller_factory.dart';
+import 'landing_page.dart';
 
+/// Modern camera page using the new test controller architecture
+/// Works with any implementation of BaseTestController
 class CameraPage extends StatefulWidget {
   final String patientCode;
   final bool isTrial;
+  final String testType; // 'mock' or 'objects' or custom
 
   const CameraPage({
-    super.key, 
+    super.key,
     required this.patientCode,
     this.isTrial = false,
+    this.testType = 'mock',
   });
 
   @override
-  CameraPageState createState() => CameraPageState();
+  State<CameraPage> createState() => _CameraPageState();
 }
 
-class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
-  // Camera controller
-  final CameraFeedController _cameraFeedController = Get.put(CameraFeedController());
+class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
+  // Controllers
+  final CameraFeedController _cameraController = Get.put(CameraFeedController());
+  BaseTestController? _testController;
   
-  // Test controller
-  late TestController _testController;
-  
-  // Detection service
-  late DetectionService _detectionService;
-  
-  // Animation controllers for flashing effects
+  // Animation controllers for visual feedback
   late AnimationController _flashController;
+  late AnimationController _progressController;
   Color _currentFlashColor = Colors.transparent;
   
-  // Video player controllers
+  // Video player for instructions
   VideoPlayerController? _videoController;
   String _currentVideoPath = '';
   bool _isVideoInitialized = false;
-  bool _isDisposingVideo = false;
+  
+  // Frame processing
+  Timer? _frameTimer;
+  
+  // UI state
+  bool _isInitialized = false;
+  String _statusMessage = 'Initializing...';
 
   @override
   void initState() {
     super.initState();
     _setupAnimations();
-    _setupDetectionService();
-    _setupTestController();
+    _initializeComponents();
   }
 
   void _setupAnimations() {
@@ -54,60 +59,130 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 1000),
       vsync: this,
     );
+    
+    _progressController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
   }
 
-  void _setupDetectionService() async {
-    _detectionService = DetectionService();
+  Future<void> _initializeComponents() async {
     try {
-      await _detectionService.initialize(modelType: ModelType.yolov5s);
-      print('Detection service initialized with ${_detectionService.modelInfo?.name}');
+      setState(() {
+        _statusMessage = 'Initializing camera...';
+      });
+      
+      // Initialize camera
+      await _cameraController.initializeCamera();
+      
+      setState(() {
+        _statusMessage = 'Setting up test controller...';
+      });
+      
+      // Create appropriate test controller based on type
+      _testController = _createTestController(widget.testType);
+      await _testController!.initialize();
+      
+      setState(() {
+        _statusMessage = 'Starting frame processing...';
+      });
+      
+      // Start processing camera frames
+      _startFrameProcessing();
+      
+      // Initialize instruction video
+      _updateInstructionVideo();
+      
+      setState(() {
+        _isInitialized = true;
+        _statusMessage = 'Ready';
+      });
+      
     } catch (e) {
-      print('Failed to initialize detection service: $e');
+      setState(() {
+        _statusMessage = 'Initialization failed: $e';
+      });
+      print('Error initializing components: $e');
     }
   }
 
-  void _setupTestController() {
-    _testController = TestController(
+  BaseTestController _createTestController(String testType) {
+    return TestControllerFactory.createController(
+      testType: testType,
       isTrial: widget.isTrial,
-      onTestUpdate: () {
-        setState(() {});
-        _updateInstructionVideo();
-      },
-      onTestComplete: _showCompletionDialog,
-      onStepComplete: (isSuccess) {
-        if (isSuccess) {
-          _flashGreen();
-        } else {
-          _flashRed();
-        }
-      },
+      onTestUpdate: _onTestUpdate,
+      onTestComplete: _onTestComplete,
+      onStepComplete: _onStepComplete,
     );
-    _updateInstructionVideo();
   }
 
-  String _getVideoPathForStep(TestStep step) {
-    // Use the video path directly from the test step
-    return step.videoPath ?? 'assets/instructions/holding-pill.mp4';
+  void _startFrameProcessing() {
+    _frameTimer = Timer.periodic(const Duration(milliseconds: 200), (timer) {
+      _processCurrentFrame();
+    });
+  }
+
+  void _stopFrameProcessing() {
+    _frameTimer?.cancel();
+  }
+
+  Future<void> _processCurrentFrame() async {
+    if (_testController == null || !_testController!.detectionService.isInitialized) {
+      return;
+    }
+    
+    final currentImage = _cameraController.currentImage;
+    if (currentImage != null) {
+      await _testController!.processCameraFrame(currentImage);
+    }
+  }
+
+  void _onTestUpdate() {
+    setState(() {});
+    _updateInstructionVideo();
+    _updateProgress();
+  }
+
+  void _onTestComplete() {
+    _stopFrameProcessing();
+    _showCompletionDialog();
+  }
+
+  void _onStepComplete(bool isSuccess) {
+    if (isSuccess) {
+      _flashGreen();
+    } else {
+      _flashRed();
+    }
+  }
+
+  void _updateProgress() {
+    final currentStep = _testController?.currentStep;
+    if (currentStep != null) {
+      _progressController.animateTo(currentStep.progress);
+    }
+  }
+
+  Future<void> _updateInstructionVideo() async {
+    final currentStep = _testController?.currentStep;
+    if (currentStep == null || currentStep.videoPath == null) {
+      return;
+    }
+    
+    final videoPath = currentStep.videoPath!;
+    if (videoPath != _currentVideoPath) {
+      await _initializeVideo(videoPath);
+    }
   }
 
   Future<void> _initializeVideo(String videoPath) async {
-    if (_currentVideoPath == videoPath) return;
-    if (videoPath.isEmpty) return;
-    if (_isDisposingVideo) return;
-    
-    // Dispose existing controller safely
-    if (_videoController != null && !_isDisposingVideo) {
-      _isDisposingVideo = true;
-      try {
-        await _videoController!.dispose();
-      } catch (e) {
-        print('Error disposing video controller: $e');
-      }
-      _videoController = null;
-      _isDisposingVideo = false;
-    }
+    if (videoPath.isEmpty || videoPath == _currentVideoPath) return;
     
     try {
+      // Dispose existing controller
+      await _videoController?.dispose();
+      
+      // Initialize new video
       _videoController = VideoPlayerController.asset(videoPath);
       await _videoController!.initialize();
       _videoController!.setLooping(true);
@@ -119,7 +194,6 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
           _isVideoInitialized = true;
         });
       }
-      print('Video initialized successfully');
     } catch (e) {
       print('Error initializing video: $e');
       if (mounted) {
@@ -130,666 +204,393 @@ class CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     }
   }
 
-  void _updateInstructionVideo() {
-    if (_testController.testSteps.isEmpty) return;
-    
-    final activeStep = _testController.isTestRunning 
-        ? _testController.testSteps.firstWhere(
-            (step) => step.isActive,
-            orElse: () => _testController.testSteps.first,
-          )
-        : _testController.testSteps.first;
-    
-    final videoPath = _getVideoPathForStep(activeStep);
-    if (videoPath.isNotEmpty) {
-      _initializeVideo(videoPath);
-    }
-  }
-
-  // To be replaced with Azure/AWS endpoint
-  void _simulateDetectionResult(String detectedLabel, double confidence) {
-    if (_testController.isTestRunning) {
-      final activeStep = _testController.testSteps.firstWhere(
-        (step) => step.isActive,
-        orElse: () => _testController.testSteps.first,
-      );
-      
-      _testController.processDetectionResult(
-        detectedLabel: detectedLabel,
-        confidence: confidence,
-        currentStep: activeStep,
-      );
-    }
-  }
-
-  void _resetTest() {
-    _testController.resetTest();
-    setState(() {
+  void _flashGreen() {
+    _currentFlashColor = Colors.green.withValues(alpha: 0.3);
+    _flashController.forward().then((_) {
+      _flashController.reverse();
       _currentFlashColor = Colors.transparent;
     });
   }
 
-  void _switchModel() async {
-    try {
-      // Get current model type
-      ModelType currentType = _detectionService.currentModelType == ModelType.yolov5s 
-          ? ModelType.mock 
-          : ModelType.yolov5s;
-      
-      ModelType newType = currentType == ModelType.yolov5s 
-          ? ModelType.mock 
-          : ModelType.yolov5s;
-      
-      // Switch the model
-      await _detectionService.setModel(newType);
-      
-      // Show feedback to user
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Switched to ${_detectionService.modelInfo?.name ?? 'Unknown'} model'),
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Model switch completed'),
-            duration: const Duration(seconds: 1),
-          ),
-        );
-      }
-    } catch (e) {
-      print('Error switching model: $e');
-    }
-  }
-
-  void _startTest() {
-    _testController.startTest();
-    _updateInstructionVideo();
-  }
-
-  void _confirmEndTest() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          title: Text(
-            'Compliance Test Incomplete',
-            style: TextStyle(
-              color: Color(0xFFA855F7), // Purple
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          content: Text(
-            'You have yet to complete the compliance test key steps. Do you want to end the test now?',
-            style: TextStyle(
-              color: Color(0xFF1F2937), // Dark gray
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              style: TextButton.styleFrom(
-                foregroundColor: Color(0xFF6B7280), // Gray
-                backgroundColor: Color(0xFF6B7280).withValues(alpha: 0.1),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              child: const Text(
-                'Cancel',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop(); // Close dialog
-                _testController.endTest();
-                // Navigate to landing page after ending incomplete test
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (context) => LandingPage()),
-                  (route) => false, // Remove all previous routes
-                );
-              },
-              style: TextButton.styleFrom(
-                foregroundColor: Colors.red,
-                backgroundColor: Colors.red.withValues(alpha: 0.1),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              child: const Text(
-                'End test',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
-        );
-      },
-    );
+  void _flashRed() {
+    _currentFlashColor = Colors.red.withValues(alpha: 0.3);
+    _flashController.forward().then((_) {
+      _flashController.reverse();
+      _currentFlashColor = Colors.transparent;
+    });
   }
 
   void _showCompletionDialog() {
     showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          title: Text(
-            'Test completed',
-            style: TextStyle(
-              color: Colors.green[600],
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          content: Text(
-            'Good job on completing all the steps! You may end the session now or take another pill.',
-            style: TextStyle(
-              color: Color(0xFF1F2937), // Dark gray
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop(); // Close dialog
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (context) => LandingPage()),
-                  (route) => false, // Remove all previous routes
-                );
-              },
-              style: TextButton.styleFrom(
-                foregroundColor: Color(0xFF6B7280), // Gray
-                backgroundColor: Color(0xFF6B7280).withValues(alpha: 0.1),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              child: const Text(
-                'End session',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop(); // Close dialog
-                _resetTest(); // Reset and start new test
-              },
-              style: TextButton.styleFrom(
-                foregroundColor: Color(0xFFA855F7), // Purple
-                backgroundColor: Color(0xFFA855F7).withValues(alpha: 0.1),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              child: const Text(
-                'Take another pill',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _flashGreen() {
-    setState(() {
-      _currentFlashColor = Colors.green.withValues(alpha: 0.3);
-    });
-    _flashController.forward().then((_) {
-      _flashController.reverse().then((_) {
-        setState(() {
-          _currentFlashColor = Colors.transparent;
-        });
-      });
-    });
-  }
-
-  void _flashRed() {
-    setState(() {
-      _currentFlashColor = Colors.red.withValues(alpha: 0.3);
-    });
-    _flashController.forward().then((_) {
-      _flashController.reverse().then((_) {
-        setState(() {
-          _currentFlashColor = Colors.transparent;
-        });
-      });
-    });
-  }
-
-  Widget _buildFullScreenCamera() {
-    return Container(
-      width: double.infinity,
-      height: double.infinity,
-      color: Colors.black,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          // Add padding around the camera feed
-          Padding(
-            padding: const EdgeInsets.all(16.0), // Adjust padding as needed
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: CameraFeedView(),
-            ),
-          ),
-          
-          // Flash overlay
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 500),
-            color: _currentFlashColor,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildVideoInstructionsWindow() {
-    final activeStep = _testController.isTestRunning 
-        ? _testController.testSteps.firstWhere(
-            (step) => step.isActive,
-            orElse: () => _testController.testSteps.first,
-          )
-        : _testController.testSteps.first;
-
-    return Container(
-      width: 200,
-      height: 150,
-      decoration: BoxDecoration(
-        color: Colors.black,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 2),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.5),
-            blurRadius: 20,
-            offset: Offset(0, 10),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: Stack(
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Test Complete'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            // Video player
-            if (_isVideoInitialized && _videoController != null)
-              Positioned.fill(
-                child: FittedBox(
-                  fit: BoxFit.cover,
-                  child: SizedBox(
-                    width: _videoController!.value.size.width,
-                    height: _videoController!.value.size.height,
-                    child: VideoPlayer(_videoController!),
-                  ),
-                ),
-              )
-            else
-              // Fallback when video is loading
-              Container(
-                width: double.infinity,
-                height: double.infinity,
-                color: Color(0xFF1F2937),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(
-                      color: Colors.white,
-                      strokeWidth: 2,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Loading...',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            
-            // Subtitle overlay
-            Positioned(
-              bottom: 8,
-              left: 8,
-              right: 8,
-              child: Container(
-                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.7),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  activeStep.label,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ),
-            
-            // Active step indicator
-            if (_testController.isTestRunning && activeStep.isActive)
-              Positioned(
-                top: 8,
-                left: 8,
-                child: Container(
-                  padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Colors.red,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    'LIVE',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-            
-            // Video controls overlay (play/pause)
-            if (_isVideoInitialized && _videoController != null)
-              Positioned.fill(
-                child: GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      if (_videoController!.value.isPlaying) {
-                        _videoController!.pause();
-                      } else {
-                        _videoController!.play();
-                      }
-                    });
-                  },
-                  child: Container(
-                    color: Colors.transparent,
-                    child: Center(
-                      child: AnimatedOpacity(
-                        opacity: _videoController!.value.isPlaying ? 0.0 : 0.8,
-                        duration: Duration(milliseconds: 300),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.6),
-                            shape: BoxShape.circle,
-                          ),
-                          padding: EdgeInsets.all(8),
-                          child: Icon(
-                            _videoController!.value.isPlaying ? Icons.pause : Icons.play_arrow,
-                            color: Colors.white,
-                            size: 20,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+            const Icon(Icons.check_circle, color: Colors.green, size: 64),
+            const SizedBox(height: 16),
+            Text(_getCompletionMessage()),
           ],
         ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _resetTest();
+            },
+            child: const Text('Run Again'),
+          ),
+          ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => LandingPage(),
+                  ),
+                );
+              },
+              child: const Text('Finish'),
+            ),
+        ],
       ),
     );
   }
 
-  Widget _buildFloatingControls() {
-    return Column(
-      children: [
-        // Camera switch button
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.7),
-            shape: BoxShape.circle,
-          ),
-          child: IconButton(
-            onPressed: _cameraFeedController.switchCamera,
-            icon: const Icon(
-              Icons.cameraswitch,
-              color: Colors.white,
-              size: 28,
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        // Model switch button
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.purple.withValues(alpha: 0.7),
-            shape: BoxShape.circle,
-          ),
-          child: IconButton(
-            onPressed: _switchModel,
-            icon: const Icon(
-              Icons.swap_horiz,
-              color: Colors.white,
-              size: 28,
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        // Debug detection button (for testing)
-        if (_testController.isTestRunning)
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.green.withValues(alpha: 0.7),
-              shape: BoxShape.circle,
-            ),
-            child: IconButton(
-              onPressed: () {
-                final activeStep = _testController.testSteps.firstWhere(
-                  (step) => step.isActive,
-                  orElse: () => _testController.testSteps.first,
-                );
-                _simulateDetectionResult(activeStep.targetLabel, 0.8);
-              },
-              icon: const Icon(
-                Icons.visibility,
-                color: Colors.white,
-                size: 28,
-              ),
-            ),
-          ),
-      ],
-    );
+  String _getCompletionMessage() {
+    final testSteps = _testController?.testSteps ?? [];
+    final successfulSteps = testSteps.where((step) => step.isSuccess).length;
+    final totalSteps = testSteps.length;
+    
+    return 'Completed $successfulSteps out of $totalSteps steps successfully.';
   }
 
-  Widget _buildActionButton() {
-    if (!_testController.hasTestStarted) {
-      return Container(
-        height: 52,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(26),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.3),
-              blurRadius: 10,
-              offset: Offset(0, 4),
-            ),
-          ],
-        ),
-        child: ElevatedButton(
-          onPressed: _startTest,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.white,
-            foregroundColor: Color(0xFFA855F7),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(26),
-            ),
-            elevation: 0,
-            shadowColor: Colors.transparent,
-          ),
-          child: const Text(
-            'Start Test',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-        ),
-      );
-    } else if (!_testController.isCompleted) {
-      return Container(
-        height: 52,
-        decoration: BoxDecoration(
-          color: Colors.red[500],
-          borderRadius: BorderRadius.circular(26),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.red.withValues(alpha: 0.4),
-              blurRadius: 10,
-              offset: Offset(0, 4),
-            ),
-          ],
-        ),
-        child: ElevatedButton(
-          onPressed: _confirmEndTest,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.red[500],
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(26),
-            ),
-            elevation: 0,
-            shadowColor: Colors.transparent,
-          ),
-          child: const Text(
-            'End Test',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-        ),
-      );
-    } else {
-      return Container(
-        height: 52,
-        decoration: BoxDecoration(
-          color: Colors.green[500],
-          borderRadius: BorderRadius.circular(26),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.green.withValues(alpha: 0.4),
-              blurRadius: 10,
-              offset: Offset(0, 4),
-            ),
-          ],
-        ),
-        child: ElevatedButton(
-          onPressed: _showCompletionDialog,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.green[500],
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(26),
-            ),
-            elevation: 0,
-            shadowColor: Colors.transparent,
-          ),
-          child: const Text(
-            'Test Complete',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-        ),
-      );
+  void _resetTest() {
+    _testController?.resetTest();
+    _updateInstructionVideo();
+  }
+
+  void _startTest() {
+    if (_testController != null && _isInitialized) {
+      _testController!.startTest();
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        title: const Text('Real Time Detection'),
-        backgroundColor: Colors.transparent,
-        foregroundColor: Colors.white,
-        elevation: 0,
-      ),
-      body: Stack(
-        children: [
-          // Full-screen camera feed
-          _buildFullScreenCamera(),
-          
-          // Trial banner (top overlay)
-          if (widget.isTrial)
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 60,
-              left: 16,
-              right: 16,
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.8),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.blue.withValues(alpha: 0.5), width: 1),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.info, color: Color(0xFF0EA5E9), size: 20),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Trial Mode - No data will be saved',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          
-          // Video instructions window (top-right corner, FaceTime style)
-          Positioned(
-            top: widget.isTrial ? 140 : MediaQuery.of(context).padding.top + 80,
-            right: 16,
-            child: _buildVideoInstructionsWindow(),
-          ),
-          
-          // Floating controls (right side)
-          Positioned(
-            top: widget.isTrial ? 310 : MediaQuery.of(context).padding.top + 250,
-            right: 16,
-            child: _buildFloatingControls(),
-          ),
-          
-          // Action button (bottom center)
-          Positioned(
-            bottom: 40,
-            left: 16,
-            right: 16,
-            child: _buildActionButton(),
-          ),
-        ],
-      ),
-    );
+  void _forceStop() {
+    _testController?.forceStopTest();
+    _stopFrameProcessing();
   }
 
   @override
   void dispose() {
     _flashController.dispose();
-    _detectionService.dispose();
-    if (_videoController != null && !_isDisposingVideo) {
-      _isDisposingVideo = true;
-      try {
-        _videoController!.dispose();
-      } catch (e) {
-        print('Error disposing video controller: $e');
-      }
-    }
+    _progressController.dispose();
+    _videoController?.dispose();
+    _frameTimer?.cancel();
+    _testController?.dispose();
     super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_isInitialized) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const CircularProgressIndicator(color: Colors.white),
+              const SizedBox(height: 16),
+              Text(
+                _statusMessage,
+                style: const TextStyle(color: Colors.white, fontSize: 16),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          // Camera feed
+          _buildCameraFeed(),
+          
+          // Flash overlay
+          AnimatedBuilder(
+            animation: _flashController,
+            builder: (context, child) => Container(
+              color: _currentFlashColor.withValues(alpha: _flashController.value),
+            ),
+          ),
+          
+          // UI overlay
+          _buildUIOverlay(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCameraFeed() {
+    return Positioned.fill(
+      child: Obx(() {
+        if (_cameraController.isInitialized.value) {
+          return FittedBox(
+            fit: BoxFit.cover,
+            child: SizedBox(
+              width: _cameraController.cameraController!.value.previewSize!.height,
+              height: _cameraController.cameraController!.value.previewSize!.width,
+              child: _cameraController.cameraController!.buildPreview(),
+            ),
+          );
+        } else {
+          return const Center(
+            child: CircularProgressIndicator(color: Colors.white),
+          );
+        }
+      }),
+    );
+  }
+
+  Widget _buildUIOverlay() {
+    return SafeArea(
+      child: Column(
+        children: [
+          // Top bar
+          _buildTopBar(),
+          
+          // Middle spacer
+          const Expanded(child: SizedBox()),
+          
+          // Instruction video
+          _buildInstructionVideo(),
+          
+          // Bottom controls
+          _buildBottomControls(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTopBar() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          // Back button
+          IconButton(
+            onPressed: () => Navigator.of(context).pop(),
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+          ),
+          
+          // Title and status
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _getTestTitle(),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  _getStatusText(),
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          // Camera switch button
+          IconButton(
+            onPressed: _cameraController.switchCamera,
+            icon: const Icon(Icons.flip_camera_ios, color: Colors.white),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _getTestTitle() {
+    return TestControllerFactory.getTestDisplayName(widget.testType);
+  }
+
+  String _getStatusText() {
+    if (_testController == null) return 'Initializing...';
+    
+    final testSteps = _testController!.testSteps;
+    final currentStepIndex = _testController!.currentStepIndex;
+    
+    if (!_testController!.hasTestStarted) {
+      return 'Ready to start';
+    } else if (_testController!.isCompleted) {
+      return 'Test completed';
+    } else if (currentStepIndex < testSteps.length) {
+      return 'Step ${currentStepIndex + 1}/${testSteps.length}: ${testSteps[currentStepIndex].label}';
+    }
+    
+    return 'In progress';
+  }
+
+  Widget _buildInstructionVideo() {
+    if (!_isVideoInitialized || _videoController == null) {
+      return const SizedBox();
+    }
+    
+    return Container(
+      margin: const EdgeInsets.all(16),
+      height: 120,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white, width: 2),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: AspectRatio(
+          aspectRatio: _videoController!.value.aspectRatio,
+          child: VideoPlayer(_videoController!),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomControls() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          // Progress indicator
+          if (_testController?.currentStep != null)
+            _buildProgressIndicator(),
+          
+          const SizedBox(height: 16),
+          
+          // Detection info
+          _buildDetectionInfo(),
+          
+          const SizedBox(height: 16),
+          
+          // Control buttons
+          _buildControlButtons(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProgressIndicator() {
+    final currentStep = _testController!.currentStep!;
+    
+    return Column(
+      children: [
+        Text(
+          currentStep.label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 8),
+        AnimatedBuilder(
+          animation: _progressController,
+          builder: (context, child) => LinearProgressIndicator(
+            value: _progressController.value,
+            backgroundColor: Colors.white30,
+            valueColor: const AlwaysStoppedAnimation<Color>(Colors.green),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '${(currentStep.progress * 100).toStringAsFixed(0)}% complete',
+          style: const TextStyle(color: Colors.white70, fontSize: 12),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDetectionInfo() {
+    if (_testController == null) return const SizedBox();
+    
+    final detections = _testController!.detectionService.lastDetections;
+    
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Latest Detections:',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          if (detections.isEmpty)
+            const Text(
+              'No detections',
+              style: TextStyle(color: Colors.white70, fontSize: 12),
+            )
+          else
+            ...detections.take(3).map((detection) => Text(
+              '${detection.label}: ${(detection.confidence * 100).toStringAsFixed(1)}%',
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            )),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildControlButtons() {
+    return Row(
+      children: [
+        // Start/Stop button
+        Expanded(
+          child: ElevatedButton(
+            onPressed: _testController?.hasTestStarted == true
+                ? _forceStop
+                : _startTest,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _testController?.isTestRunning == true
+                  ? Colors.red
+                  : Colors.green,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+            ),
+            child: Text(
+              _testController?.isTestRunning == true ? 'Stop Test' : 'Start Test',
+              style: const TextStyle(fontSize: 16),
+            ),
+          ),
+        ),
+        
+        const SizedBox(width: 12),
+        
+        // Reset button
+        ElevatedButton(
+          onPressed: _resetTest,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.orange,
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+          ),
+          child: const Text('Reset'),
+        ),
+      ],
+    );
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'guide_page.dart';
 import 'camera_test_page.dart';
+import 'test_launcher_page.dart';
 
 class LandingPage extends StatelessWidget {
   @override
@@ -124,6 +125,38 @@ class LandingPage extends StatelessWidget {
                   ),
                   child: const Text(
                     'Camera Test',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+              
+              const SizedBox(height: 12),
+              
+              // Test Launcher button (for development)
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => TestLauncherPage()),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white.withValues(alpha: 0.15),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(color: Colors.white.withValues(alpha: 0.3)),
+                    ),
+                    elevation: 4,
+                  ),
+                  child: const Text(
+                    'Test Launcher (Dev)',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,

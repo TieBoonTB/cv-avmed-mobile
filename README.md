@@ -60,23 +60,138 @@
 ```
 lib/
 ├── controllers/
-│   └── test_controller.dart     # Test logic and step management
-├── pages/
-│   ├── landing_page.dart        # Welcome screen
-│   ├── guide_page.dart          # Video instructions and survey
-│   └── camera_page.dart         # Main detection interface
+│   ├── base_test_controller.dart          # Abstract base for all test controllers
+│   ├── mock_test_controller.dart          # Mock test implementation
+│   ├── object_detection_test_controller.dart # Real object detection test
+│   └── camera_feed_controller.dart        # Camera management
 ├── services/
-│   └── detection_service.dart   # Mock ML detection service
+│   ├── base_detection_service.dart        # Abstract detection service
+│   ├── mock_detection_service.dart        # Mock detection for testing
+│   └── yolov5_detection_service.dart      # Real YOLO detection
+├── models/
+│   ├── base_model.dart                    # Abstract ML model interface
+│   ├── mock_model.dart                    # Mock model for testing
+│   ├── yolov5s_model.dart                 # YOLOv5 TensorFlow Lite model
+│   └── model_factory.dart                 # Factory for creating models
+├── pages/
+│   ├── landing_page.dart                  # Welcome screen
+│   ├── guide_page.dart                    # Video instructions and survey
+│   ├── camera_page.dart                   # Universal camera interface
+│   ├── test_launcher_page.dart            # Developer test interface
+│   └── camera_test_page.dart              # Camera testing utilities
+├── utils/
+│   └── test_controller_factory.dart       # Factory for creating test controllers
 ├── widgets/
-│   └── pretest_survey_widget.dart # Patient information form
-└── main.dart                    # Application entry point
+│   └── pretest_survey_widget.dart         # Patient information form
+├── types/
+│   └── detection_types.dart               # Detection result data structures
+├── config/
+│   └── model_config.dart                  # ML model configurations
+└── main.dart                              # Application entry point
 
 assets/
-├── images/                      # Logo and icon assets
-├── videos/                      # Instructional videos
-├── audios/                      # Audio feedback files
-└── instructions/                # Step-by-step video guides
+├── models/
+│   └── yolov5s_f16.tflite                 # YOLOv5 TensorFlow Lite model
+├── images/                                # Logo and icon assets
+├── videos/                                # Instructional videos
+├── audios/                                # Audio feedback files
+└── instructions/                          # Step-by-step video guides
 ```
+
+## Architecture
+
+### Overview
+
+AV-MED Mobile uses a modern, extensible architecture based on abstract classes and factory patterns. This design allows for easy addition of new test types and detection services without modifying existing code.
+
+### Architecture Layers
+
+#### 1. **Abstract Layer**
+- **BaseTestController**: Abstract base for all test implementations
+- **BaseDetectionService**: Abstract interface for detection services  
+- **BaseModel**: Abstract interface for ML models
+
+#### 2. **Implementation Layer**
+- **MockTestController**: Test implementation using mock detection
+- **ObjectDetectionTestController**: Test using real object detection
+- **MockDetectionService**: Simulated detection for development
+- **YOLOv5DetectionService**: Real AI-powered object detection
+
+#### 3. **Factory Layer**
+- **TestControllerFactory**: Creates appropriate test controllers
+- **ModelFactory**: Creates ML model instances
+
+### Test Types
+
+#### Mock Test
+- **Purpose**: Development and testing with simulated results
+- **Controller**: MockTestController
+- **Service**: MockDetectionService  
+- **Model**: MockModel
+- **Use Case**: UI development, testing workflows, demonstrations
+
+#### Object Detection Test (YOLOv5)
+- **Purpose**: Real object detection using machine learning
+- **Controller**: ObjectDetectionTestController
+- **Service**: YOLOv5DetectionService
+- **Model**: YOLOv5sModel (TensorFlow Lite)
+- **Use Case**: Production detection of common objects
+
+### Component Interactions
+
+```
+┌─────────────────────────────────────────────────┐
+│                CameraPage                       │
+│  (Universal Interface)                          │
+└─────────────────┬───────────────────────────────┘
+                  │
+┌─────────────────▼───────────────────────────────┐
+│           TestControllerFactory                 │
+│  Creates appropriate test controller            │
+└─────────────────┬───────────────────────────────┘
+                  │
+        ┌─────────▼─────────┐    ┌─────────▼─────────┐
+        │ MockTestController│    │ObjectDetectionTest│
+        │                   │    │    Controller     │
+        └─────────┬─────────┘    └─────────┬─────────┘
+                  │                        │
+    ┌─────────────▼─────────────┐ ┌────────▼──────────┐
+    │  MockDetectionService     │ │YOLOv5DetectionSvce│
+    └─────────────┬─────────────┘ └────────┬──────────┘
+                  │                        │
+        ┌─────────▼─────────┐    ┌─────────▼─────────┐
+        │    MockModel      │    │  YOLOv5sModel     │
+        └───────────────────┘    └───────────────────┘
+```
+
+### Adding New Test Types
+
+1. **Create Test Controller**:
+   ```dart
+   class NewTestController extends BaseTestController {
+     // Implement abstract methods
+   }
+   ```
+
+2. **Create Detection Service** (if needed):
+   ```dart
+   class NewDetectionService extends BaseDetectionService {
+     // Implement detection logic
+   }
+   ```
+
+3. **Update Factory**:
+   ```dart
+   // Add to TestControllerFactory
+   case 'newTest':
+     return NewTestController(/* params */);
+   ```
+
+4. **Add to Configuration**:
+   ```dart
+   // Add test type constant and display info
+   static const String newTest = 'newTest';
+   ```
 
 ### Development Commands
 
@@ -145,21 +260,25 @@ flutter build ios --release
 
 ## Testing
 
-### Mock Detection
+### Test Types Available
 
-The application includes a mock detection service that simulates ML model responses for development and testing purposes. This allows for:
+#### 1. **Mock Detection Test**
+- **Purpose**: Development and testing with simulated results
+- **Access**: Test Launcher (Dev) → Mock Detection Test
+- **Features**:
+  - Predictable detection results
+  - Fast execution (no ML processing)
+  - Consistent UI testing scenarios
+  - No camera processing required
 
-- Rapid prototyping without ML infrastructure
-- Consistent testing scenarios
-- UI/UX validation
-
-### Test Steps Configuration
-
-Detection steps are configured in `TestController` with adjustable parameters:
-
-- **Target detection time**: 0.5 seconds (configurable)
-- **Maximum step time**: 3.0 seconds (configurable)
-- **Confidence thresholds**: 65-70% (per step)
+#### 2. **Object Detection Test (YOLOv5)**
+- **Purpose**: Real AI-powered object detection
+- **Access**: Test Launcher (Dev) → Object Detection Test
+- **Features**:
+  - Real YOLOv5 model inference
+  - Detects 80 COCO dataset objects
+  - Camera-based live detection
+  - Production-ready detection pipeline
 
 ## Troubleshooting
 

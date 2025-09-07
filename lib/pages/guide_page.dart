@@ -134,6 +134,7 @@ class GuidePageState extends State<GuidePage> with WidgetsBindingObserver {
         builder: (context) => CameraPage(
           patientCode: patientCode,
           isTrial: false, // Set to true for trial mode
+          testType: 'medication', // Default to medication test
         ),
       ),
     );

@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'dart:async';
 import '../controllers/camera_feed_controller.dart';
-import '../services/detection_service.dart';
-import '../config/model_config.dart';
+import '../services/yolov5_detection_service.dart';
 import '../utils/camera_image_utils.dart';
 import '../types/detection_types.dart';
 
@@ -19,7 +18,7 @@ class _CameraTestPageState extends State<CameraTestPage> {
   final CameraFeedController _cameraController = Get.put(CameraFeedController());
   
   // Detection service
-  late DetectionService _detectionService;
+  late YOLOv5DetectionService _detectionService;
   bool _isDetectionServiceReady = false;
   
   // Detection testing variables
@@ -42,13 +41,13 @@ class _CameraTestPageState extends State<CameraTestPage> {
   }
 
   void _setupDetectionService() async {
-    _detectionService = DetectionService();
+    _detectionService = YOLOv5DetectionService();
     try {
-      await _detectionService.initialize(modelType: ModelType.yolov5s);
+      await _detectionService.initialize();
       setState(() {
         _isDetectionServiceReady = true;
       });
-      print('Detection service initialized with ${_detectionService.modelInfo?.name}');
+      print('Detection service initialized with ${_detectionService.currentModel?.modelInfo.name}');
     } catch (e) {
       print('Failed to initialize detection service: $e');
     }
@@ -374,7 +373,7 @@ class _CameraTestPageState extends State<CameraTestPage> {
 
       // Show processed image if available
       if (_processedImageWidget != null) {
-        return Container(
+        return SizedBox(
           width: double.infinity,
           height: double.infinity,
           child: _processedImageWidget,

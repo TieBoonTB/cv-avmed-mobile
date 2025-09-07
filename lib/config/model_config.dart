@@ -45,7 +45,7 @@ class ModelConfigurations {
     defaultConfidenceThreshold: 0.5,
     inputWidth: 320,
     inputHeight: 320,
-    modelPath: 'assets/models/yolov5s.tflite',
+    modelPath: 'assets/models/yolov5s_f16.tflite',
   );
 
   static const ModelInfo mock = ModelInfo(
