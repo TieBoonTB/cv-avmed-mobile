@@ -20,6 +20,7 @@ abstract class BaseTestController {
   bool _isTestRunning = false;
   bool _isCompleted = false;
   int _currentStepIndex = 0;
+  bool _isDisposed = false; // Add disposal flag
 
   BaseTestController({
     required this.isTrial,
@@ -110,7 +111,7 @@ abstract class BaseTestController {
       steps[0].isActive = true;
     }
     
-    onTestUpdate?.call();
+    _safeCallback(onTestUpdate);
     _runTestSequence();
   }
 
@@ -131,7 +132,7 @@ abstract class BaseTestController {
       
       // Activate current step
       step.isActive = true;
-      onTestUpdate?.call();
+      _safeCallback(onTestUpdate);
       
       // Custom step start logic
       await onStepStart(step);
@@ -147,8 +148,8 @@ abstract class BaseTestController {
         // Custom step end logic
         await onStepEnd(step, isSuccess);
         
-        onTestUpdate?.call();
-        onStepComplete?.call(isSuccess);
+        _safeCallback(onTestUpdate);
+        _safeStepCallback(onStepComplete, isSuccess);
       }
     }
     
@@ -173,7 +174,7 @@ abstract class BaseTestController {
       // Process detections using subclass-specific logic
       if (processDetectionResult(detections, step)) {
         step.detectedFrameCount++;
-        onTestUpdate?.call();
+        _safeCallback(onTestUpdate);
         
         // Check if target is reached
         if (step.isTargetReached) {
@@ -193,8 +194,8 @@ abstract class BaseTestController {
     _isTestRunning = false;
     _isCompleted = true;
     
-    onTestUpdate?.call();
-    onTestComplete?.call();
+    _safeCallback(onTestUpdate);
+    _safeCallback(onTestComplete);
   }
 
   /// Reset the test to initial state
@@ -211,18 +212,33 @@ abstract class BaseTestController {
       step.detectedFrameCount = 0;
     }
     
-    onTestUpdate?.call();
+    _safeCallback(onTestUpdate);
   }
 
   /// Force stop the test
   void forceStopTest() {
     _isTestRunning = false;
-    onTestUpdate?.call();
+    _safeCallback(onTestUpdate);
   }
 
   /// Dispose resources
   void dispose() {
+    _isDisposed = true;
     _detectionService.dispose();
+  }
+  
+  /// Safe callback invocation that checks disposal state
+  void _safeCallback(VoidCallback? callback) {
+    if (!_isDisposed && callback != null) {
+      callback();
+    }
+  }
+  
+  /// Safe step complete callback invocation
+  void _safeStepCallback(Function(bool)? callback, bool isSuccess) {
+    if (!_isDisposed && callback != null) {
+      callback(isSuccess);
+    }
   }
 }
 

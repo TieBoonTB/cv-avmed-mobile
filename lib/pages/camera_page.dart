@@ -68,6 +68,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
 
   Future<void> _initializeComponents() async {
     try {
+      if (!mounted) return;
       setState(() {
         _statusMessage = 'Initializing camera...';
       });
@@ -75,6 +76,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       // Initialize camera
       await _cameraController.initializeCamera();
       
+      if (!mounted) return;
       setState(() {
         _statusMessage = 'Setting up test controller...';
       });
@@ -83,6 +85,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       _testController = _createTestController(widget.testType);
       await _testController!.initialize();
       
+      if (!mounted) return;
       setState(() {
         _statusMessage = 'Starting frame processing...';
       });
@@ -93,12 +96,14 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       // Initialize instruction video
       _updateInstructionVideo();
       
+      if (!mounted) return;
       setState(() {
         _isInitialized = true;
         _statusMessage = 'Ready';
       });
       
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _statusMessage = 'Initialization failed: $e';
       });
@@ -118,6 +123,10 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
 
   void _startFrameProcessing() {
     _frameTimer = Timer.periodic(const Duration(milliseconds: 200), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
       _processCurrentFrame();
     });
   }
@@ -127,7 +136,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   }
 
   Future<void> _processCurrentFrame() async {
-    if (_testController == null || !_testController!.detectionService.isInitialized) {
+    if (!mounted || _testController == null || !_testController!.detectionService.isInitialized) {
       return;
     }
     
@@ -138,17 +147,20 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   }
 
   void _onTestUpdate() {
+    if (!mounted) return; // Add mounted check
     setState(() {});
     _updateInstructionVideo();
     _updateProgress();
   }
 
   void _onTestComplete() {
+    if (!mounted) return; // Add mounted check
     _stopFrameProcessing();
     _showCompletionDialog();
   }
 
   void _onStepComplete(bool isSuccess) {
+    if (!mounted) return; // Add mounted check
     if (isSuccess) {
       _flashGreen();
     } else {
@@ -285,11 +297,19 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    // Stop frame processing first to prevent any ongoing operations
+    _stopFrameProcessing();
+    
+    // Dispose animation controllers
     _flashController.dispose();
     _progressController.dispose();
+    
+    // Dispose video controller
     _videoController?.dispose();
-    _frameTimer?.cancel();
+    
+    // Dispose test controller (this should also stop any ongoing detection)
     _testController?.dispose();
+    
     super.dispose();
   }
 
