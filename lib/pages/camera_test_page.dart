@@ -3,6 +3,8 @@ import 'package:get/get.dart';
 import 'dart:async';
 import '../controllers/camera_feed_controller.dart';
 import '../services/yolov5_detection_service.dart';
+import '../services/avmed_detection_service.dart';
+import '../services/base_detection_service.dart';
 import '../utils/camera_image_utils.dart';
 import '../types/detection_types.dart';
 
@@ -17,8 +19,11 @@ class _CameraTestPageState extends State<CameraTestPage> {
   // Camera controller
   final CameraFeedController _cameraController = Get.put(CameraFeedController());
   
-  // Detection service
-  late YOLOv5DetectionService _detectionService;
+  // Detection services
+  YOLOv5DetectionService? _yolov5Service;
+  AVMedDetectionService? _avmedService;
+  BaseDetectionService? _currentDetectionService;
+  bool _useAVMedModel = false; // Start with YOLOv5 by default
   bool _isDetectionServiceReady = false;
   
   // Detection testing variables
@@ -27,6 +32,14 @@ class _CameraTestPageState extends State<CameraTestPage> {
   List<DetectionResult> _lastDetections = [];
   int _processedFrames = 0;
   int _detectionInterval = 1000; // milliseconds
+  
+  // Timing tracking variables
+  int _lastInferenceTimeMs = 0;
+  int _averageInferenceTimeMs = 0;
+  int _minInferenceTimeMs = 0;
+  int _maxInferenceTimeMs = 0;
+  List<int> _recentInferenceTimes = [];
+  final int _maxRecentTimes = 10; // Keep last 10 inference times for averaging
   
   // Processed image display
   Widget? _processedImageWidget;
@@ -41,16 +54,82 @@ class _CameraTestPageState extends State<CameraTestPage> {
   }
 
   void _setupDetectionService() async {
-    _detectionService = YOLOv5DetectionService();
     try {
-      await _detectionService.initialize();
+      // Initialize both detection services
+      _yolov5Service = YOLOv5DetectionService();
+      _avmedService = AVMedDetectionService();
+      
+      // Initialize YOLOv5 service
+      try {
+        await _yolov5Service?.initialize();
+      } catch (e) {
+        rethrow; // Re-throw to trigger outer catch
+      }
+      
+      // Initialize AVMED service
+      try {
+        await _avmedService?.initialize();
+      } catch (e) {
+        rethrow; // Re-throw to trigger outer catch
+      }
+      
+      // Set current service based on toggle (default to YOLOv5)
+      _currentDetectionService = _useAVMedModel ? _avmedService : _yolov5Service;
+      
       setState(() {
         _isDetectionServiceReady = true;
       });
-      print('Detection service initialized with ${_detectionService.currentModel?.modelInfo.name}');
     } catch (e) {
-      print('Failed to initialize detection service: $e');
+      _showMessage('Failed to initialize detection models. Please try restarting the page.');
+      
+      // Ensure partial services are cleaned up
+      try {
+        _yolov5Service?.dispose();
+      } catch (_) {}
+      try {
+        _avmedService?.dispose();
+      } catch (_) {}
     }
+  }
+
+  /// Toggle between AVMED and YOLOv5 models
+  void _toggleDetectionModel() {
+    if (!_isDetectionServiceReady) {
+      _showMessage('Detection services not ready yet');
+      return;
+    }
+
+    // Stop detection if running
+    bool wasRunning = _isDetectionRunning;
+    if (wasRunning) {
+      _stopDetectionTesting();
+    }
+
+    setState(() {
+      _useAVMedModel = !_useAVMedModel;
+      _currentDetectionService = _useAVMedModel ? _avmedService : _yolov5Service;
+      
+      // Reset statistics when switching models
+      _lastInferenceTimeMs = 0;
+      _averageInferenceTimeMs = 0;
+      _minInferenceTimeMs = 0;
+      _maxInferenceTimeMs = 0;
+      _recentInferenceTimes.clear();
+      _processedFrames = 0;
+      _lastDetections.clear();
+    });
+
+    _showMessage('Switched to ${_getCurrentModelName()} model');
+
+    // Restart detection if it was running
+    if (wasRunning) {
+      _startDetectionTesting();
+    }
+  }
+
+  /// Get current model name for display
+  String _getCurrentModelName() {
+    return _useAVMedModel ? 'AVMED' : 'YOLOv5';
   }
 
   /// Start object detection testing
@@ -67,9 +146,13 @@ class _CameraTestPageState extends State<CameraTestPage> {
     setState(() {
       _isDetectionRunning = true;
       _processedFrames = 0;
+      // Reset timing statistics
+      _lastInferenceTimeMs = 0;
+      _averageInferenceTimeMs = 0;
+      _minInferenceTimeMs = 0;
+      _maxInferenceTimeMs = 0;
+      _recentInferenceTimes.clear();
     });
-
-    print('Starting detection testing with ${_detectionInterval}ms interval...');
 
     _detectionTimer = Timer.periodic(Duration(milliseconds: _detectionInterval), (timer) {
       _processCurrentCameraImage();
@@ -86,8 +169,7 @@ class _CameraTestPageState extends State<CameraTestPage> {
     setState(() {
       _isDetectionRunning = false;
     });
-    
-    print('Stopped detection testing. Processed $_processedFrames frames.');
+
   }
 
   /// Process current camera image for object detection
@@ -98,6 +180,9 @@ class _CameraTestPageState extends State<CameraTestPage> {
       print('No camera image available');
       return;
     }
+
+    // Start timing the inference
+    final stopwatch = Stopwatch()..start();
 
     try {
       // Generate processed image widget for display
@@ -112,11 +197,18 @@ class _CameraTestPageState extends State<CameraTestPage> {
       }
 
       // Run object detection
-      final results = await _detectionService.processFrame(
+      final results = await _currentDetectionService?.processFrame(
         imageBytes,
         currentImage.height,
         currentImage.width,
-      );
+      ) ?? [];
+
+      // Stop timing and record the result
+      stopwatch.stop();
+      final inferenceTimeMs = stopwatch.elapsedMilliseconds;
+      
+      // Update timing statistics
+      _updateTimingStatistics(inferenceTimeMs);
 
       setState(() {
         _lastDetections = results;
@@ -124,18 +216,47 @@ class _CameraTestPageState extends State<CameraTestPage> {
         _processedImageWidget = processedWidget;
       });
 
-      // Print detection results to console
+      // Print detection results and timing to console
       if (results.isNotEmpty) {
-        print('Frame $_processedFrames - Detected ${results.length} objects:');
+        print('  Detected ${results.length} objects:');
         for (final result in results) {
-          print('  ${result.label}: ${(result.confidence * 100).toStringAsFixed(1)}%');
+          print('    ${result.label}: ${(result.confidence * 100).toStringAsFixed(1)}%');
         }
       } else {
-        print('Frame $_processedFrames - No objects detected');
+        print('  No objects detected');
       }
 
     } catch (e) {
-      print('Error processing frame $_processedFrames: $e');
+      stopwatch.stop();
+    }
+  }
+
+  /// Update timing statistics for inference performance tracking
+  void _updateTimingStatistics(int inferenceTimeMs) {
+    _lastInferenceTimeMs = inferenceTimeMs;
+    
+    // Add to recent times list
+    _recentInferenceTimes.add(inferenceTimeMs);
+    if (_recentInferenceTimes.length > _maxRecentTimes) {
+      _recentInferenceTimes.removeAt(0);
+    }
+    
+    // Calculate average of recent times
+    if (_recentInferenceTimes.isNotEmpty) {
+      _averageInferenceTimeMs = (_recentInferenceTimes.reduce((a, b) => a + b) / _recentInferenceTimes.length).round();
+    }
+    
+    // Update min and max
+    if (_processedFrames == 1) {
+      _minInferenceTimeMs = inferenceTimeMs;
+      _maxInferenceTimeMs = inferenceTimeMs;
+    } else {
+      if (inferenceTimeMs < _minInferenceTimeMs) {
+        _minInferenceTimeMs = inferenceTimeMs;
+      }
+      if (inferenceTimeMs > _maxInferenceTimeMs) {
+        _maxInferenceTimeMs = inferenceTimeMs;
+      }
     }
   }
 
@@ -150,10 +271,18 @@ class _CameraTestPageState extends State<CameraTestPage> {
 
   @override
   void dispose() {
+    // Stop any running detection
     _stopDetectionTesting();
-    if (_isDetectionServiceReady) {
-      _detectionService.dispose();
+    
+    // Safely dispose of both detection services
+    try {
+      _yolov5Service?.dispose();
+      _avmedService?.dispose();
+    } 
+    catch (e) {
+      print("Error disposing detection services: $e");
     }
+
     super.dispose();
   }
 
@@ -313,9 +442,47 @@ class _CameraTestPageState extends State<CameraTestPage> {
             ),
           ),
           
-          // Display mode toggle button
+          // Model toggle button (AVMED/YOLOv5)
           Positioned(
             top: 260,
+            right: 20,
+            child: Container(
+              decoration: BoxDecoration(
+                color: _useAVMedModel 
+                  ? Colors.purple.withValues(alpha: 0.8)
+                  : Colors.blue.withValues(alpha: 0.8),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: MaterialButton(
+                onPressed: _toggleDetectionModel,
+                minWidth: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _useAVMedModel ? Icons.science : Icons.visibility,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      _getCurrentModelName(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          
+          // Display mode toggle button
+          Positioned(
+            top: 320,
             right: 20,
             child: Container(
               decoration: BoxDecoration(
@@ -335,6 +502,13 @@ class _CameraTestPageState extends State<CameraTestPage> {
                 ),
               ),
             ),
+          ),
+          
+          // Inference timing widget
+          Positioned(
+            top: 380,
+            right: 20,
+            child: _buildTimingWidget(),
           ),
         ],
       ),
@@ -504,5 +678,149 @@ class _CameraTestPageState extends State<CameraTestPage> {
         ),
       ],
     );
+  }
+
+  /// Build the inference timing widget
+  Widget _buildTimingWidget() {
+    // Only show timing widget if we have processed frames
+    if (_processedFrames == 0) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white30, width: 1),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.timer,
+                color: Colors.white,
+                size: 16,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Inference Timing (${_getCurrentModelName()})',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          
+          // Last inference time
+          _buildTimingRow(
+            'Last:',
+            '${_lastInferenceTimeMs}ms',
+            _getTimingColor(_lastInferenceTimeMs),
+          ),
+          
+          // Average inference time (if we have multiple samples)
+          if (_recentInferenceTimes.length > 1) ...[
+            _buildTimingRow(
+              'Avg:',
+              '${_averageInferenceTimeMs}ms',
+              _getTimingColor(_averageInferenceTimeMs),
+            ),
+            _buildTimingRow(
+              'Min/Max:',
+              '$_minInferenceTimeMs/$_maxInferenceTimeMs ms',
+              Colors.white70,
+            ),
+          ],
+          
+          // Estimated FPS based on average
+          if (_averageInferenceTimeMs > 0) ...[
+            const SizedBox(height: 4),
+            _buildTimingRow(
+              'Est. FPS:',
+              (1000 / _averageInferenceTimeMs).toStringAsFixed(1),
+              _getFPSColor((1000 / _averageInferenceTimeMs)),
+            ),
+          ],
+          
+          // Frame count
+          const SizedBox(height: 4),
+          Text(
+            'Frames: $_processedFrames',
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 10,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Build a timing info row
+  Widget _buildTimingRow(String label, String value, Color valueColor) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 1),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 50,
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 10,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              color: valueColor,
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Get color based on inference timing (green = fast, red = slow)
+  Color _getTimingColor(int timeMs) {
+    if (timeMs <= 33) {
+      return Colors.green; // 30+ FPS capable
+    } else if (timeMs <= 66) {
+      return Colors.lightGreen; // 15-30 FPS
+    } else if (timeMs <= 100) {
+      return Colors.yellow; // 10-15 FPS
+    } else if (timeMs <= 200) {
+      return Colors.orange; // 5-10 FPS
+    } else {
+      return Colors.red; // <5 FPS
+    }
+  }
+
+  /// Get color based on FPS (green = high FPS, red = low FPS)
+  Color _getFPSColor(double fps) {
+    if (fps >= 30) {
+      return Colors.green;
+    } else if (fps >= 15) {
+      return Colors.lightGreen;
+    } else if (fps >= 10) {
+      return Colors.yellow;
+    } else if (fps >= 5) {
+      return Colors.orange;
+    } else {
+      return Colors.red;
+    }
   }
 }

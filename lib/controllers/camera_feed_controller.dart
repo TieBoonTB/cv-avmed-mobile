@@ -257,7 +257,13 @@ class _CameraFeedViewState extends State<CameraFeedView> {
             child: CircularProgressIndicator(color: Colors.white),
           );
         }
-        return CameraPreview(controller.cameraController!);
+        return FittedBox(
+            fit: BoxFit.cover,
+            child: SizedBox(
+              width: controller.cameraController!.value.previewSize!.height,
+              height: controller.cameraController!.value.previewSize!.width,
+              child: controller.cameraController!.buildPreview(),
+            ));
       } catch (e) {
         debugPrint('Error creating CameraPreview widget: $e');
         return Center(
