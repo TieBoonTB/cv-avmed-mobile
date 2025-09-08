@@ -23,6 +23,7 @@ class ModelInfo {
 enum ModelType {
   yolov5s,
   mock,
+  avmed,
 }
 
 /// Centralized model configurations
@@ -58,12 +59,27 @@ class ModelConfigurations {
     modelPath: '', // No file needed for mock
   );
 
+  static const ModelInfo avmed = ModelInfo(
+    name: 'AVMED Dual Model',
+    version: '16-12-24',
+    supportedLabels: [
+      'pill', 'mouth', 'hand', 'face', 'tongue', 'water', 'cup', 'person',
+      'pill on tongue', 'no pill on tongue', 'drink water', 'no pill under tongue'
+    ],
+    defaultConfidenceThreshold: 0.7, // Based on AVMED pipeline plan
+    inputWidth: 640, // Main model input - may need adjustment based on actual model
+    inputHeight: 640,
+    modelPath: 'assets/models/av_med_16-12-24_f16.tflite',
+  );
+
   static ModelInfo getModelInfo(ModelType type) {
     switch (type) {
       case ModelType.yolov5s:
         return yolov5s;
       case ModelType.mock:
         return mock;
+      case ModelType.avmed:
+        return avmed;
     }
   }
 }

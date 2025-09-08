@@ -1,6 +1,7 @@
 import '../controllers/base_test_controller.dart';
 import '../controllers/mock_test_controller.dart';
 import '../controllers/object_detection_test_controller.dart';
+import '../controllers/avmed_test_controller.dart';
 import 'package:flutter/material.dart';
 
 /// Factory for creating test controllers
@@ -9,6 +10,7 @@ class TestControllerFactory {
   /// Available test types
   static const String mockTest = 'mock';
   static const String objectDetectionTest = 'objects';
+  static const String avmedTest = 'avmed';
   
   /// Create a test controller based on type
   static BaseTestController createController({
@@ -35,6 +37,14 @@ class TestControllerFactory {
           onStepComplete: onStepComplete,
         );
       
+      case avmedTest:
+        return AVMedTestController(
+          isTrial: isTrial,
+          onTestUpdate: onTestUpdate,
+          onTestComplete: onTestComplete,
+          onStepComplete: onStepComplete,
+        );
+      
       default:
         // Default to mock test for unknown types
         return MockTestController(
@@ -53,6 +63,8 @@ class TestControllerFactory {
         return 'Mock Detection Test';
       case objectDetectionTest:
         return 'Object Detection Test (YOLOv5)';
+      case avmedTest:
+        return 'AVMED Medication Adherence Test';
       default:
         return 'Unknown Test';
     }
@@ -65,6 +77,8 @@ class TestControllerFactory {
         return 'Test with simulated detection results for development and testing';
       case objectDetectionTest:
         return 'Real object detection using YOLOv5 model - show different objects';
+      case avmedTest:
+        return 'Medication adherence monitoring using dual model AI detection (pill, mouth, face detection)';
       default:
         return 'Unknown test type';
     }
@@ -72,7 +86,7 @@ class TestControllerFactory {
   
   /// Get all available test types
   static List<String> getAvailableTestTypes() {
-    return [mockTest, objectDetectionTest];
+    return [mockTest, objectDetectionTest, avmedTest];
   }
   
   /// Check if a test type is valid
