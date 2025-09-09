@@ -7,6 +7,7 @@ import '../services/avmed_detection_service.dart';
 import '../services/base_detection_service.dart';
 import '../utils/camera_image_utils.dart';
 import '../types/detection_types.dart';
+import '../utils/adaptive_interval_calculator.dart';
 
 class CameraTestPage extends StatefulWidget {
   const CameraTestPage({super.key});
@@ -31,15 +32,10 @@ class _CameraTestPageState extends State<CameraTestPage> {
   Timer? _detectionTimer;
   List<DetectionResult> _lastDetections = [];
   int _processedFrames = 0;
-  int _detectionInterval = 1000; // milliseconds
+  int _detectionInterval = 1500; // Current adaptive interval (starts at 1500ms)
   
-  // Timing tracking variables
-  int _lastInferenceTimeMs = 0;
-  int _averageInferenceTimeMs = 0;
-  int _minInferenceTimeMs = 0;
-  int _maxInferenceTimeMs = 0;
-  List<int> _recentInferenceTimes = [];
-  final int _maxRecentTimes = 10; // Keep last 10 inference times for averaging
+  // changes how frequent the inference timer is
+  late AdaptiveIntervalCalculator _intervalCalculator;
   
   // Processed image display
   Widget? _processedImageWidget;
@@ -50,7 +46,9 @@ class _CameraTestPageState extends State<CameraTestPage> {
   @override
   void initState() {
     super.initState();
+    
     _setupDetectionService();
+    _intervalCalculator = AdaptiveIntervalCalculator();
   }
 
   void _setupDetectionService() async {
@@ -110,13 +108,11 @@ class _CameraTestPageState extends State<CameraTestPage> {
       _currentDetectionService = _useAVMedModel ? _avmedService : _yolov5Service;
       
       // Reset statistics when switching models
-      _lastInferenceTimeMs = 0;
-      _averageInferenceTimeMs = 0;
-      _minInferenceTimeMs = 0;
-      _maxInferenceTimeMs = 0;
-      _recentInferenceTimes.clear();
       _processedFrames = 0;
       _lastDetections.clear();
+      
+      // Reset the adaptive calculator
+      _intervalCalculator.reset();
     });
 
     _showMessage('Switched to ${_getCurrentModelName()} model');
@@ -146,14 +142,17 @@ class _CameraTestPageState extends State<CameraTestPage> {
     setState(() {
       _isDetectionRunning = true;
       _processedFrames = 0;
-      // Reset timing statistics
-      _lastInferenceTimeMs = 0;
-      _averageInferenceTimeMs = 0;
-      _minInferenceTimeMs = 0;
-      _maxInferenceTimeMs = 0;
-      _recentInferenceTimes.clear();
+      
+      // Reset the adaptive calculator for this detection session
+      _intervalCalculator.reset();
     });
 
+    _startDetectionTimer();
+  }
+
+  /// Start or restart the detection timer with current interval
+  void _startDetectionTimer() {
+    _detectionTimer?.cancel();
     _detectionTimer = Timer.periodic(Duration(milliseconds: _detectionInterval), (timer) {
       _processCurrentCameraImage();
     });
@@ -181,15 +180,15 @@ class _CameraTestPageState extends State<CameraTestPage> {
       return;
     }
 
-    // Start timing the inference
-    final stopwatch = Stopwatch()..start();
+    // Start timing the inference using the calculator
+    _intervalCalculator.startTiming();
 
     try {
       // Generate processed image widget for display
-      final processedWidget = CameraImageUtils.convertCameraImageToWidget(currentImage);
+      final processedWidget = CameraImageUtils.convertCameraImageToWidget(currentImage, isFrontCamera: _cameraController.isFrontCamera);
       
       // Convert camera image to bytes for ML processing
-      final imageBytes = CameraImageUtils.convertCameraImageToBytes(currentImage);
+      final imageBytes = CameraImageUtils.convertCameraImageToBytes(currentImage, isFrontCamera: _cameraController.isFrontCamera);
       
       if (imageBytes.isEmpty) {
         print('Failed to convert camera image to bytes');
@@ -203,12 +202,19 @@ class _CameraTestPageState extends State<CameraTestPage> {
         currentImage.width,
       ) ?? [];
 
-      // Stop timing and record the result
-      stopwatch.stop();
-      final inferenceTimeMs = stopwatch.elapsedMilliseconds;
+      // Stop timing and automatically add sample to calculator
+      _intervalCalculator.stopTiming();
       
-      // Update timing statistics
-      _updateTimingStatistics(inferenceTimeMs);
+      // Always check if we should adjust the interval (adaptive timing is always on)
+      if (_isDetectionRunning) {
+        final newInterval = _intervalCalculator.calculateNewInterval(_detectionInterval);
+        if (newInterval != _detectionInterval) {
+          setState(() {
+            _detectionInterval = newInterval;
+          });
+          _startDetectionTimer(); // Restart with new interval
+        }
+      }
 
       setState(() {
         _lastDetections = results;
@@ -227,36 +233,8 @@ class _CameraTestPageState extends State<CameraTestPage> {
       }
 
     } catch (e) {
-      stopwatch.stop();
-    }
-  }
-
-  /// Update timing statistics for inference performance tracking
-  void _updateTimingStatistics(int inferenceTimeMs) {
-    _lastInferenceTimeMs = inferenceTimeMs;
-    
-    // Add to recent times list
-    _recentInferenceTimes.add(inferenceTimeMs);
-    if (_recentInferenceTimes.length > _maxRecentTimes) {
-      _recentInferenceTimes.removeAt(0);
-    }
-    
-    // Calculate average of recent times
-    if (_recentInferenceTimes.isNotEmpty) {
-      _averageInferenceTimeMs = (_recentInferenceTimes.reduce((a, b) => a + b) / _recentInferenceTimes.length).round();
-    }
-    
-    // Update min and max
-    if (_processedFrames == 1) {
-      _minInferenceTimeMs = inferenceTimeMs;
-      _maxInferenceTimeMs = inferenceTimeMs;
-    } else {
-      if (inferenceTimeMs < _minInferenceTimeMs) {
-        _minInferenceTimeMs = inferenceTimeMs;
-      }
-      if (inferenceTimeMs > _maxInferenceTimeMs) {
-        _maxInferenceTimeMs = inferenceTimeMs;
-      }
+      // If there was an error, we should still stop the timing
+      _intervalCalculator.stopTiming();
     }
   }
 
@@ -378,7 +356,7 @@ class _CameraTestPageState extends State<CameraTestPage> {
                       style: const TextStyle(color: Colors.white70, fontSize: 12),
                     ),
                     Text(
-                      'Interval: ${_detectionInterval}ms',
+                      'Interval: ${_detectionInterval}ms (adaptive)',
                       style: const TextStyle(color: Colors.white70, fontSize: 12),
                     ),
                   ],
@@ -648,34 +626,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
             ),
           ),
         ),
-        const SizedBox(width: 16),
-        // Interval Control
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.7),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: DropdownButton<int>(
-            value: _detectionInterval,
-            onChanged: _isDetectionRunning ? null : (value) {
-              setState(() {
-                _detectionInterval = value!;
-              });
-            },
-            dropdownColor: Colors.black87,
-            style: const TextStyle(color: Colors.white),
-            underline: Container(),
-            items: [5000, 2500, 2000, 1000].map((interval) {
-              return DropdownMenuItem<int>(
-                value: interval,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Text('${interval}ms'),
-                ),
-              );
-            }).toList(),
-          ),
-        ),
       ],
     );
   }
@@ -720,33 +670,35 @@ class _CameraTestPageState extends State<CameraTestPage> {
           const SizedBox(height: 8),
           
           // Last inference time
-          _buildTimingRow(
-            'Last:',
-            '${_lastInferenceTimeMs}ms',
-            _getTimingColor(_lastInferenceTimeMs),
-          ),
+          if (_intervalCalculator.lastInferenceTime > 0) ...[
+            _buildTimingRow(
+              'Last:',
+              '${_intervalCalculator.lastInferenceTime.round()}ms',
+              _getTimingColor(_intervalCalculator.lastInferenceTime.round()),
+            ),
+          ],
           
           // Average inference time (if we have multiple samples)
-          if (_recentInferenceTimes.length > 1) ...[
+          if (_intervalCalculator.sampleCount > 1) ...[
             _buildTimingRow(
               'Avg:',
-              '${_averageInferenceTimeMs}ms',
-              _getTimingColor(_averageInferenceTimeMs),
+              '${_intervalCalculator.averageInferenceTime.round()}ms',
+              _getTimingColor(_intervalCalculator.averageInferenceTime.round()),
             ),
             _buildTimingRow(
-              'Min/Max:',
-              '$_minInferenceTimeMs/$_maxInferenceTimeMs ms',
+              'Samples:',
+              '${_intervalCalculator.sampleCount}',
               Colors.white70,
             ),
           ],
           
           // Estimated FPS based on average
-          if (_averageInferenceTimeMs > 0) ...[
+          if (_intervalCalculator.averageInferenceTime > 0) ...[
             const SizedBox(height: 4),
             _buildTimingRow(
               'Est. FPS:',
-              (1000 / _averageInferenceTimeMs).toStringAsFixed(1),
-              _getFPSColor((1000 / _averageInferenceTimeMs)),
+              (1000 / _intervalCalculator.averageInferenceTime).toStringAsFixed(1),
+              _getFPSColor((1000 / _intervalCalculator.averageInferenceTime)),
             ),
           ],
           

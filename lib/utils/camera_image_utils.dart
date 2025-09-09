@@ -64,7 +64,7 @@ class CameraImageUtils {
 
   /// Convert CameraImage directly to encoded bytes (JPEG) for ML processing
   /// This creates properly encoded image bytes that can be decoded by img.decodeImage()
-  static Uint8List convertCameraImageToBytes(CameraImage cameraImage) {
+  static Uint8List convertCameraImageToBytes(CameraImage cameraImage, {bool isFrontCamera = false}) {
     try {
       final image = convertCameraImageToImage(cameraImage);
       if (image == null) {
@@ -72,11 +72,21 @@ class CameraImageUtils {
         return Uint8List(0);
       }
       
-      // Apply orientation correction (rotate 90 degrees clockwise for mobile cameras)
-      final rotatedImage = img.copyRotate(image, angle: 90);
+      // Apply orientation correction based on camera type
+      img.Image processedImage;
+      if (isFrontCamera) {
+        // Front cameras need special handling:
+        // 1. Rotate 270 degrees clockwise (or -90 degrees) to correct orientation
+        // 2. Flip horizontally to correct the mirror effect
+        final rotatedImage = img.copyRotate(image, angle: 270);
+        processedImage = img.flipHorizontal(rotatedImage);
+      } else {
+        // Back cameras need 90 degrees clockwise rotation only
+        processedImage = img.copyRotate(image, angle: 90);
+      }
       
       // Encode as JPEG
-      final jpegBytes = img.encodeJpg(rotatedImage);
+      final jpegBytes = img.encodeJpg(processedImage);
       return Uint8List.fromList(jpegBytes);
     } catch (e) {
       debugPrint('Error converting camera image to bytes: $e');
@@ -112,9 +122,9 @@ class CameraImageUtils {
 
   /// Convert CameraImage to a displayable Widget
   /// This shows exactly what the ML model sees after processing
-  static Widget? convertCameraImageToWidget(CameraImage cameraImage) {
+  static Widget? convertCameraImageToWidget(CameraImage cameraImage, {bool isFrontCamera = false}) {
     try {
-      final imageBytes = convertCameraImageToBytes(cameraImage);
+      final imageBytes = convertCameraImageToBytes(cameraImage, isFrontCamera: isFrontCamera);
       if (imageBytes.isEmpty) {
         return null;
       }

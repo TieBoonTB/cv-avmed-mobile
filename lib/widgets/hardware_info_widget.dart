@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:device_info_plus/device_info_plus.dart';
-import 'package:flutter/services.dart';
 import 'dart:io';
 
 /// Comprehensive hardware information widget that displays all available
@@ -75,7 +74,7 @@ class _HardwareInfoWidgetState extends State<HardwareInfoWidget> {
         final memoryKB = RegExp(r'(\d+)').firstMatch(memoryString)?.group(1);
         if (memoryKB != null) {
           final memoryGB = (int.parse(memoryKB) / 1024 / 1024).toStringAsFixed(1);
-          totalMemory = '${memoryGB} GB';
+          totalMemory = '$memoryGB GB';
         } else {
           totalMemory = memoryString; // Fallback to original format
         }
