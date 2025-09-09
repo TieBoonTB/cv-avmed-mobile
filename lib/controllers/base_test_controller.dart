@@ -58,12 +58,12 @@ abstract class BaseTestController {
   
   /// Process a camera image through the detection service
   /// This method should be called whenever a new camera frame is available
-  Future<void> processCameraFrame(CameraImage cameraImage) async {
+  Future<void> processCameraFrame(CameraImage cameraImage, {bool isFrontCamera = false}) async {
     if (!_detectionService.isInitialized) return;
     
     try {
       // Convert camera image to bytes
-      final imageBytes = CameraImageUtils.convertCameraImageToBytes(cameraImage);
+      final imageBytes = CameraImageUtils.convertCameraImageToBytes(cameraImage, isFrontCamera: isFrontCamera);
       
       if (imageBytes.isNotEmpty) {
         // Process frame through the detection service

@@ -5,6 +5,7 @@ import 'dart:async';
 import '../controllers/base_test_controller.dart';
 import '../controllers/camera_feed_controller.dart';
 import '../utils/test_controller_factory.dart';
+import "../utils/adaptive_interval_calculator.dart";
 import 'landing_page.dart';
 
 /// Modern camera page using the new test controller architecture
@@ -34,6 +35,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   late AnimationController _flashController;
   late AnimationController _progressController;
   Color _currentFlashColor = Colors.transparent;
+  late AdaptiveIntervalCalculator _intervalCalculator; 
   
   // Video player for instructions
   VideoPlayerController? _videoController;
@@ -42,6 +44,8 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   
   // Frame processing
   Timer? _frameTimer;
+  int _defaultFrameProcessingInterval = 1000;
+  int _frameProcessingInterval = 1000; // Start with 200ms, will be adapted
   
   // UI state
   bool _isInitialized = false;
@@ -52,6 +56,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     super.initState();
     _setupAnimations();
     _initializeComponents();
+    _intervalCalculator = AdaptiveIntervalCalculator();
   }
 
   void _setupAnimations() {
@@ -90,9 +95,6 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
         _statusMessage = 'Starting frame processing...';
       });
       
-      // Start processing camera frames
-      _startFrameProcessing();
-      
       // Initialize instruction video
       _updateInstructionVideo();
       
@@ -122,7 +124,12 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   }
 
   void _startFrameProcessing() {
-    _frameTimer = Timer.periodic(const Duration(milliseconds: 200), (timer) { // Camera Frame Processing: 200ms
+    _startFrameTimer();
+  }
+
+  void _startFrameTimer() {
+    _frameTimer?.cancel();
+    _frameTimer = Timer.periodic(Duration(milliseconds: _frameProcessingInterval), (timer) {
       if (!mounted) {
         timer.cancel();
         return;
@@ -142,7 +149,25 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     
     final currentImage = _cameraController.currentImage;
     if (currentImage != null) {
-      await _testController!.processCameraFrame(currentImage);
+      // Start timing the frame processing
+      _intervalCalculator.startTiming();
+      
+      try {
+        await _testController!.processCameraFrame(currentImage, isFrontCamera: _cameraController.isFrontCamera);
+        
+        // Stop timing and check if we should adjust interval
+        _intervalCalculator.stopTiming();
+        
+        final newInterval = _intervalCalculator.calculateNewInterval(_frameProcessingInterval);
+        if (newInterval != _frameProcessingInterval) {
+          _frameProcessingInterval = newInterval;
+          _startFrameTimer(); // Restart with new interval
+        }
+      } catch (e) {
+        // Still stop timing even if there was an error
+        _intervalCalculator.stopTiming();
+        rethrow;
+      }
     }
   }
 
@@ -288,6 +313,12 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     if (_testController != null && _isInitialized) {
       _testController!.startTest();
     }
+    
+    // Reset adaptive interval calculator for new test session
+    _intervalCalculator.reset();
+    _frameProcessingInterval = _defaultFrameProcessingInterval; // Reset to starting interval
+    
+    _startFrameProcessing();
   }
 
   void _forceStop() {
