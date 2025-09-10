@@ -24,6 +24,9 @@ enum ModelType {
   yolov5s,
   mock,
   avmed,
+  yolov8n,
+  mediapipe,
+  sppbAnalysis,
 }
 
 /// Centralized model configurations
@@ -72,6 +75,41 @@ class ModelConfigurations {
     modelPath: 'assets/models/av_med_16-12-24_f16.tflite',
   );
 
+  static const ModelInfo yolov8n = ModelInfo(
+    name: 'YOLOv8n Chair Detection',
+    version: '1.0.0',
+    supportedLabels: ['chair', 'person', 'couch', 'dining table'],
+    defaultConfidenceThreshold: 0.6,
+    inputWidth: 320,
+    inputHeight: 320,
+    modelPath: 'assets/models/yolov8n_chair.tflite',
+  );
+
+  static const ModelInfo mediapipe = ModelInfo(
+    name: 'MediaPipe Pose Landmark Full',
+    version: '1.0.0',
+    supportedLabels: [
+      'left_hip', 'right_hip', 'left_knee', 'right_knee',
+      'left_shoulder', 'right_shoulder', 'left_ankle', 'right_ankle',
+      'nose', 'left_eye', 'right_eye', 'left_ear', 'right_ear',
+      'left_wrist', 'right_wrist', 'left_elbow', 'right_elbow'
+    ],
+    defaultConfidenceThreshold: 0.5,
+    inputWidth: 192,
+    inputHeight: 192,
+    modelPath: 'assets/models/pose_landmark_full.tflite',
+  );
+
+  static const ModelInfo sppbAnalysis = ModelInfo(
+    name: 'SPPB Clinical Analysis',
+    version: '1.0.0',
+    supportedLabels: ['hip_angle', 'movement_phase', 'repetition_count'],
+    defaultConfidenceThreshold: 0.7,
+    inputWidth: 0, // Analysis model doesn't need image input
+    inputHeight: 0,
+    modelPath: '', // No model file needed for analysis
+  );
+
   static ModelInfo getModelInfo(ModelType type) {
     switch (type) {
       case ModelType.yolov5s:
@@ -80,6 +118,12 @@ class ModelConfigurations {
         return mock;
       case ModelType.avmed:
         return avmed;
+      case ModelType.yolov8n:
+        return yolov8n;
+      case ModelType.mediapipe:
+        return mediapipe;
+      case ModelType.sppbAnalysis:
+        return sppbAnalysis;
     }
   }
 }
