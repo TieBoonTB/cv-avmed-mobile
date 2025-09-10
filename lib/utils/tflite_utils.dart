@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'dart:math' as math;
+import 'package:flutter/services.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
 
 /// Simplified TensorFlow Lite utilities
@@ -7,6 +8,19 @@ class TFLiteUtils {
   /// Load and initialize interpreter from asset
   static Future<Interpreter> loadModelFromAsset(String assetPath) async {
     final interpreter = await Interpreter.fromAsset(assetPath);
+    interpreter.allocateTensors();
+    return interpreter;
+  }
+  
+  /// Load model bytes from asset (for isolate use)
+  static Future<Uint8List> loadModelBytesFromAsset(String assetPath) async {
+    final ByteData data = await rootBundle.load(assetPath);
+    return data.buffer.asUint8List();
+  }
+  
+  /// Create interpreter from model bytes (isolate-safe)
+  static Interpreter createInterpreterFromBytes(Uint8List modelBytes) {
+    final interpreter = Interpreter.fromBuffer(modelBytes);
     interpreter.allocateTensors();
     return interpreter;
   }

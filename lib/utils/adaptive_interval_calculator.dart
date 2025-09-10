@@ -22,7 +22,7 @@ class AdaptiveIntervalCalculator {
   AdaptiveIntervalCalculator({
     this.maxSamples = 10,
     this.multiplier = 1.5,
-    this.minInterval = 1000,
+    this.minInterval = 1500,
     this.maxInterval = 5000,
     this.changeThreshold = 0.2,
   });

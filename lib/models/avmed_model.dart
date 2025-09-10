@@ -45,6 +45,33 @@ class AVMedModel extends BaseModel {
     }
   }
 
+  /// Initialize model with bytes (for isolate use)
+  Future<void> initializeWithBytes(Uint8List mainModelBytes, Uint8List faceModelBytes) async {
+    try {
+      print('[ISOLATE] Initializing AVMED dual model system from bytes...');
+      
+      // Initialize main detection model from bytes
+      _mainDetectionInterpreter = TFLiteUtils.createInterpreterFromBytes(mainModelBytes);
+      print('[ISOLATE] Main detection model loaded successfully');
+      
+      // Initialize face detection model from bytes
+      _faceDetectionInterpreter = TFLiteUtils.createInterpreterFromBytes(faceModelBytes);
+      print('[ISOLATE] Face detection model loaded successfully');
+      
+      // Validate models
+      if (_mainDetectionInterpreter != null && _faceDetectionInterpreter != null) {
+        _printModelInfo();
+        _isInitialized = true;
+        print('[ISOLATE] AVMED model system initialized successfully');
+      } else {
+        throw Exception('Failed to load one or both AVMED models');
+      }
+    } catch (e) {
+      print('[ISOLATE] Error initializing AVMED model: $e');
+      rethrow;
+    }
+  }
+
   Future<Interpreter> _loadModel(String modelPath) async {
     try {
       return await TFLiteUtils.loadModelFromAsset(modelPath);

@@ -26,6 +26,26 @@ class DetectionBox {
     required this.height,
   });
 
+  /// Convert to map for serialization
+  Map<String, dynamic> toMap() {
+    return {
+      'x': x,
+      'y': y,
+      'width': width,
+      'height': height,
+    };
+  }
+
+  /// Create from map for deserialization
+  static DetectionBox fromMap(Map<String, dynamic> map) {
+    return DetectionBox(
+      x: map['x']?.toDouble() ?? 0.0,
+      y: map['y']?.toDouble() ?? 0.0,
+      width: map['width']?.toDouble() ?? 0.0,
+      height: map['height']?.toDouble() ?? 0.0,
+    );
+  }
+
   @override
   String toString() => 'DetectionBox(x: $x, y: $y, w: $width, h: $height)';
 }
@@ -43,6 +63,26 @@ class DetectionResult {
     required this.box,
     this.status = DetectionStatus.success,
   });
+
+  /// Convert to map for serialization
+  Map<String, dynamic> toMap() {
+    return {
+      'label': label,
+      'confidence': confidence,
+      'box': box.toMap(),
+      'status': status.index,
+    };
+  }
+
+  /// Create from map for deserialization
+  static DetectionResult fromMap(Map<String, dynamic> map) {
+    return DetectionResult(
+      label: map['label'] ?? '',
+      confidence: map['confidence']?.toDouble() ?? 0.0,
+      box: DetectionBox.fromMap(Map<String, dynamic>.from(map['box'])),
+      status: DetectionStatus.values[map['status'] ?? 0],
+    );
+  }
 
   @override
   String toString() => 'DetectionResult(label: $label, confidence: $confidence, box: $box)';

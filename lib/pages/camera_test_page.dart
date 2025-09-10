@@ -2,12 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'dart:async';
 import '../controllers/camera_feed_controller.dart';
-import '../services/yolov5_detection_service.dart';
-import '../services/avmed_detection_service.dart';
+import '../services/isolate_detection_service.dart';
 import '../services/base_detection_service.dart';
 import '../utils/camera_image_utils.dart';
 import '../types/detection_types.dart';
-import '../utils/adaptive_interval_calculator.dart';
 
 class CameraTestPage extends StatefulWidget {
   const CameraTestPage({super.key});
@@ -20,9 +18,9 @@ class _CameraTestPageState extends State<CameraTestPage> {
   // Camera controller
   final CameraFeedController _cameraController = Get.put(CameraFeedController());
   
-  // Detection services
-  YOLOv5DetectionService? _yolov5Service;
-  AVMedDetectionService? _avmedService;
+  // Detection services (isolate-based only)
+  IsolateYOLOv5DetectionService? _isolateYolov5Service;
+  IsolateAVMedDetectionService? _isolateAvmedService;
   BaseDetectionService? _currentDetectionService;
   bool _useAVMedModel = false; // Start with YOLOv5 by default
   bool _isDetectionServiceReady = false;
@@ -32,60 +30,71 @@ class _CameraTestPageState extends State<CameraTestPage> {
   Timer? _detectionTimer;
   List<DetectionResult> _lastDetections = [];
   int _processedFrames = 0;
-  int _detectionInterval = 1500; // Current adaptive interval (starts at 1500ms)
-  
-  // changes how frequent the inference timer is
-  late AdaptiveIntervalCalculator _intervalCalculator;
-  
-  // Processed image display
-  Widget? _processedImageWidget;
-  
-  // Display mode toggle (default to camera preview)
-  bool _showProcessedImage = false;
+  int _detectionInterval = 500; // Fixed interval in ms (no longer adaptive)
 
   @override
   void initState() {
     super.initState();
     
     _setupDetectionService();
-    _intervalCalculator = AdaptiveIntervalCalculator();
   }
 
   void _setupDetectionService() async {
     try {
-      // Initialize both detection services
-      _yolov5Service = YOLOv5DetectionService();
-      _avmedService = AVMedDetectionService();
+      print('Initializing isolate-based detection services...');
       
-      // Initialize YOLOv5 service
+      // Initialize isolate-based services
+      _isolateYolov5Service = IsolateYOLOv5DetectionService();
+      _isolateAvmedService = IsolateAVMedDetectionService();
+      
+      bool yolov5Success = false;
+      bool avmedSuccess = false;
+      
       try {
-        await _yolov5Service?.initialize();
+        await _isolateYolov5Service?.initialize();
+        print('Isolate YOLOv5 service initialized');
+        yolov5Success = true;
       } catch (e) {
-        rethrow; // Re-throw to trigger outer catch
+        print('Failed to initialize isolate YOLOv5 service: $e');
       }
       
-      // Initialize AVMED service
       try {
-        await _avmedService?.initialize();
+        await _isolateAvmedService?.initialize();
+        print('Isolate AVMED service initialized');
+        avmedSuccess = true;
       } catch (e) {
-        rethrow; // Re-throw to trigger outer catch
+        print('Failed to initialize isolate AVMED service: $e');
       }
       
-      // Set current service based on toggle (default to YOLOv5)
-      _currentDetectionService = _useAVMedModel ? _avmedService : _yolov5Service;
+      if (yolov5Success || avmedSuccess) {
+        // Set current service based on model selection and availability
+        if (_useAVMedModel && avmedSuccess) {
+          _currentDetectionService = _isolateAvmedService;
+        } else if (!_useAVMedModel && yolov5Success) {
+          _currentDetectionService = _isolateYolov5Service;
+        } else if (yolov5Success) {
+          // Fallback to YOLOv5 if AVMED requested but failed
+          _currentDetectionService = _isolateYolov5Service;
+          _useAVMedModel = false;
+        } else if (avmedSuccess) {
+          // Fallback to AVMED if YOLOv5 requested but failed
+          _currentDetectionService = _isolateAvmedService;
+          _useAVMedModel = true;
+        }
+      }
       
       setState(() {
-        _isDetectionServiceReady = true;
+        _isDetectionServiceReady = _currentDetectionService?.isInitialized ?? false;
       });
+      
+      print('Detection service setup complete. Ready: $_isDetectionServiceReady, YOLOv5: $yolov5Success, AVMED: $avmedSuccess');
     } catch (e) {
       _showMessage('Failed to initialize detection models. Please try restarting the page.');
       
       // Ensure partial services are cleaned up
       try {
-        _yolov5Service?.dispose();
-      } catch (_) {}
-      try {
-        _avmedService?.dispose();
+        _isolateYolov5Service?.dispose();
+        _isolateAvmedService?.dispose();
       } catch (_) {}
     }
   }
@@ -105,14 +114,17 @@ class _CameraTestPageState extends State<CameraTestPage> {
 
     setState(() {
       _useAVMedModel = !_useAVMedModel;
-      _currentDetectionService = _useAVMedModel ? _avmedService : _yolov5Service;
+      
+      // Switch to appropriate isolate service
+      if (_useAVMedModel && _isolateAvmedService?.isInitialized == true) {
+        _currentDetectionService = _isolateAvmedService;
+      } else if (!_useAVMedModel && _isolateYolov5Service?.isInitialized == true) {
+        _currentDetectionService = _isolateYolov5Service;
+      }
       
       // Reset statistics when switching models
       _processedFrames = 0;
       _lastDetections.clear();
-      
-      // Reset the adaptive calculator
-      _intervalCalculator.reset();
     });
 
     _showMessage('Switched to ${_getCurrentModelName()} model');
@@ -142,9 +154,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
     setState(() {
       _isDetectionRunning = true;
       _processedFrames = 0;
-      
-      // Reset the adaptive calculator for this detection session
-      _intervalCalculator.reset();
     });
 
     _startDetectionTimer();
@@ -180,15 +189,14 @@ class _CameraTestPageState extends State<CameraTestPage> {
       return;
     }
 
-    // Start timing the inference using the calculator
-    _intervalCalculator.startTiming();
-
     try {
-      // Generate processed image widget for display
-      final processedWidget = CameraImageUtils.convertCameraImageToWidget(currentImage, isFrontCamera: _cameraController.isFrontCamera);
-      
-      // Convert camera image to bytes for ML processing
+      // Convert camera image to bytes for ML processing (measure timing)
+      final conversionStart = DateTime.now();
       final imageBytes = CameraImageUtils.convertCameraImageToBytes(currentImage, isFrontCamera: _cameraController.isFrontCamera);
+      final conversionTime = DateTime.now().difference(conversionStart).inMilliseconds;
+      if (conversionTime > 10) {
+        print('Image conversion took ${conversionTime}ms (main thread)');
+      }
       
       if (imageBytes.isEmpty) {
         print('Failed to convert camera image to bytes');
@@ -202,27 +210,12 @@ class _CameraTestPageState extends State<CameraTestPage> {
         currentImage.width,
       ) ?? [];
 
-      // Stop timing and automatically add sample to calculator
-      _intervalCalculator.stopTiming();
-      
-      // Always check if we should adjust the interval (adaptive timing is always on)
-      if (_isDetectionRunning) {
-        final newInterval = _intervalCalculator.calculateNewInterval(_detectionInterval);
-        if (newInterval != _detectionInterval) {
-          setState(() {
-            _detectionInterval = newInterval;
-          });
-          _startDetectionTimer(); // Restart with new interval
-        }
-      }
-
       setState(() {
         _lastDetections = results;
         _processedFrames++;
-        _processedImageWidget = processedWidget;
       });
 
-      // Print detection results and timing to console
+      // Print detection results to console
       if (results.isNotEmpty) {
         print('  Detected ${results.length} objects:');
         for (final result in results) {
@@ -233,8 +226,7 @@ class _CameraTestPageState extends State<CameraTestPage> {
       }
 
     } catch (e) {
-      // If there was an error, we should still stop the timing
-      _intervalCalculator.stopTiming();
+      print('Error processing camera image: $e');
     }
   }
 
@@ -252,10 +244,10 @@ class _CameraTestPageState extends State<CameraTestPage> {
     // Stop any running detection
     _stopDetectionTesting();
     
-    // Safely dispose of both detection services
+    // Safely dispose of all detection services
     try {
-      _yolov5Service?.dispose();
-      _avmedService?.dispose();
+      _isolateYolov5Service?.dispose();
+      _isolateAvmedService?.dispose();
     } 
     catch (e) {
       print("Error disposing detection services: $e");
@@ -356,7 +348,7 @@ class _CameraTestPageState extends State<CameraTestPage> {
                       style: const TextStyle(color: Colors.white70, fontSize: 12),
                     ),
                     Text(
-                      'Interval: ${_detectionInterval}ms (adaptive)',
+                      'Interval: ${_detectionInterval}ms (fixed)',
                       style: const TextStyle(color: Colors.white70, fontSize: 12),
                     ),
                   ],
@@ -365,11 +357,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
                   const SizedBox(height: 8),
                   Text(
                     'Camera Type: ${_cameraController.isFrontCamera ? "Front" : "Back"}',
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Display Mode: ${_showProcessedImage ? "ML Input" : "Camera Preview"}',
                     style: const TextStyle(color: Colors.white70, fontSize: 12),
                   ),
                   if (_cameraController.currentImage != null) ...[
@@ -458,95 +445,21 @@ class _CameraTestPageState extends State<CameraTestPage> {
             ),
           ),
           
-          // Display mode toggle button
+          // Inference timing widget
           Positioned(
             top: 320,
             right: 20,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.7),
-                shape: BoxShape.circle,
-              ),
-              child: IconButton(
-                onPressed: () {
-                  setState(() {
-                    _showProcessedImage = !_showProcessedImage;
-                  });
-                },
-                icon: Icon(
-                  _showProcessedImage ? Icons.camera : Icons.image_search,
-                  color: Colors.white,
-                  size: 28,
-                ),
-              ),
-            ),
-          ),
-          
-          // Inference timing widget
-          Positioned(
-            top: 380,
-            right: 20,
             child: _buildTimingWidget(),
           ),
+          
         ],
       ),
     );
   }
 
   Widget _buildDisplayView() {
-    // Switch between camera preview and processed image based on toggle
-    if (_showProcessedImage) {
-      // Show processed ML input image
-      return _buildProcessedImageView();
-    } else {
-      // Show raw camera preview (default)
-      return CameraFeedView();
-    }
-  }
-
-  Widget _buildProcessedImageView() {
-    // Check if camera is initialized
-    return Obx(() {
-      if (!_cameraController.isInitialized.value) {
-        return const Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(color: Colors.white),
-              SizedBox(height: 16),
-              Text(
-                'Setting up camera...',
-                style: TextStyle(color: Colors.white, fontSize: 16),
-              ),
-            ],
-          ),
-        );
-      }
-
-      // Show processed image if available
-      if (_processedImageWidget != null) {
-        return SizedBox(
-          width: double.infinity,
-          height: double.infinity,
-          child: _processedImageWidget,
-        );
-      }
-
-      // Fallback message when no processed image is available yet
-      return const Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.camera_alt, size: 48, color: Colors.white70),
-            SizedBox(height: 16),
-            Text(
-              'Start detection to see processed image',
-              style: TextStyle(color: Colors.white, fontSize: 16),
-            ),
-          ],
-        ),
-      );
-    });
+    // Always show camera preview
+    return CameraFeedView();
   }
 
   Widget _buildDetectionResults() {
@@ -630,9 +543,9 @@ class _CameraTestPageState extends State<CameraTestPage> {
     );
   }
 
-  /// Build the inference timing widget
+  /// Build a simple frame counter widget instead of complex timing
   Widget _buildTimingWidget() {
-    // Only show timing widget if we have processed frames
+    // Only show if we have processed frames
     if (_processedFrames == 0) {
       return const SizedBox.shrink();
     }
@@ -652,13 +565,13 @@ class _CameraTestPageState extends State<CameraTestPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(
-                Icons.timer,
+                Icons.analytics,
                 color: Colors.white,
                 size: 16,
               ),
               const SizedBox(width: 6),
               Text(
-                'Inference Timing (${_getCurrentModelName()})',
+                'Detection Stats (${_getCurrentModelName()})',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 12,
@@ -669,110 +582,34 @@ class _CameraTestPageState extends State<CameraTestPage> {
           ),
           const SizedBox(height: 8),
           
-          // Last inference time
-          if (_intervalCalculator.lastInferenceTime > 0) ...[
-            _buildTimingRow(
-              'Last:',
-              '${_intervalCalculator.lastInferenceTime.round()}ms',
-              _getTimingColor(_intervalCalculator.lastInferenceTime.round()),
-            ),
-          ],
-          
-          // Average inference time (if we have multiple samples)
-          if (_intervalCalculator.sampleCount > 1) ...[
-            _buildTimingRow(
-              'Avg:',
-              '${_intervalCalculator.averageInferenceTime.round()}ms',
-              _getTimingColor(_intervalCalculator.averageInferenceTime.round()),
-            ),
-            _buildTimingRow(
-              'Samples:',
-              '${_intervalCalculator.sampleCount}',
-              Colors.white70,
-            ),
-          ],
-          
-          // Estimated FPS based on average
-          if (_intervalCalculator.averageInferenceTime > 0) ...[
-            const SizedBox(height: 4),
-            _buildTimingRow(
-              'Est. FPS:',
-              (1000 / _intervalCalculator.averageInferenceTime).toStringAsFixed(1),
-              _getFPSColor((1000 / _intervalCalculator.averageInferenceTime)),
-            ),
-          ],
-          
-          // Frame count
-          const SizedBox(height: 4),
           Text(
             'Frames: $_processedFrames',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+            ),
+          ),
+          
+          Text(
+            'Interval: ${_detectionInterval}ms',
             style: const TextStyle(
               color: Colors.white70,
               fontSize: 10,
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  /// Build a timing info row
-  Widget _buildTimingRow(String label, String value, Color valueColor) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 1),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            width: 50,
-            child: Text(
-              label,
+          
+          if (_lastDetections.isNotEmpty) ...[
+            Text(
+              'Objects: ${_lastDetections.length}',
               style: const TextStyle(
-                color: Colors.white70,
+                color: Colors.green,
                 fontSize: 10,
               ),
             ),
-          ),
-          Text(
-            value,
-            style: TextStyle(
-              color: valueColor,
-              fontSize: 10,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
+          ],
         ],
       ),
     );
   }
 
-  /// Get color based on inference timing (green = fast, red = slow)
-  Color _getTimingColor(int timeMs) {
-    if (timeMs <= 33) {
-      return Colors.green; // 30+ FPS capable
-    } else if (timeMs <= 66) {
-      return Colors.lightGreen; // 15-30 FPS
-    } else if (timeMs <= 100) {
-      return Colors.yellow; // 10-15 FPS
-    } else if (timeMs <= 200) {
-      return Colors.orange; // 5-10 FPS
-    } else {
-      return Colors.red; // <5 FPS
-    }
-  }
-
-  /// Get color based on FPS (green = high FPS, red = low FPS)
-  Color _getFPSColor(double fps) {
-    if (fps >= 30) {
-      return Colors.green;
-    } else if (fps >= 15) {
-      return Colors.lightGreen;
-    } else if (fps >= 10) {
-      return Colors.yellow;
-    } else if (fps >= 5) {
-      return Colors.orange;
-    } else {
-      return Colors.red;
-    }
-  }
 }

@@ -52,6 +52,40 @@ class YOLOv5sModel extends BaseModel {
     }
   }
 
+  /// Initialize model with bytes (for isolate use)
+  Future<void> initializeWithBytes(Uint8List modelBytes) async {
+    try {
+      print('[ISOLATE] Loading YOLOv5s model from bytes...');
+      
+      // Create interpreter from bytes
+      _interpreter = TFLiteUtils.createInterpreterFromBytes(modelBytes);
+      
+      // Print model info for debugging
+      final inputTensors = _interpreter!.getInputTensors();
+      final outputTensors = _interpreter!.getOutputTensors();
+      
+      print('[ISOLATE] YOLOv5s model loaded successfully');
+      print('[ISOLATE] Input tensors: ${inputTensors.length}');
+      print('[ISOLATE] Output tensors: ${outputTensors.length}');
+      
+      if (inputTensors.isNotEmpty) {
+        print('[ISOLATE] Input shape: ${inputTensors.first.shape}');
+        print('[ISOLATE] Input type: ${inputTensors.first.type}');
+      }
+      
+      if (outputTensors.isNotEmpty) {
+        print('[ISOLATE] Output shape: ${outputTensors.first.shape}');
+        print('[ISOLATE] Output type: ${outputTensors.first.type}');
+      }
+      
+      _isInitialized = true;
+      print('[ISOLATE] YOLOv5s model initialized successfully');
+    } catch (e) {
+      print('[ISOLATE] Error initializing YOLOv5s model: $e');
+      rethrow;
+    }
+  }
+
   @override
   Future<List<DetectionResult>> processFrame(Uint8List frameData, int imageHeight, int imageWidth) async {
     if (!_isInitialized || _interpreter == null) {
