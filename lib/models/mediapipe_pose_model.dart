@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'dart:math' as math;
 import 'package:tflite_flutter/tflite_flutter.dart';
+import 'package:image/image.dart' as img;
 import 'base_model.dart';
 import '../types/detection_types.dart';
 import '../config/model_config.dart';
@@ -12,6 +13,7 @@ class MediaPipePoseModel extends BaseModel {
   Interpreter? _interpreter;
   late List<List<int>> _inputShape;
   late List<List<int>> _outputShape;
+  late List<TensorType> _outputTypes;
   bool _isInitialized = false;
 
   @override
@@ -31,10 +33,12 @@ class MediaPipePoseModel extends BaseModel {
       // Get input and output shapes
       _inputShape = _interpreter!.getInputTensors().map((tensor) => tensor.shape).toList();
       _outputShape = _interpreter!.getOutputTensors().map((tensor) => tensor.shape).toList();
+      _outputTypes = _interpreter!.getOutputTensors().map((tensor) => tensor.type).toList();
       
       print('MediaPipe Model loaded successfully');
       print('Input shape: $_inputShape');
       print('Output shape: $_outputShape');
+      print('Output types: $_outputTypes');
       
       // Validate model shapes
       if (_inputShape.isEmpty || _outputShape.isEmpty) {
@@ -43,15 +47,11 @@ class MediaPipePoseModel extends BaseModel {
       
       // Test the model with a small inference to check for compatibility issues
       try {
-        final testInput = List.generate(1, (i) => 
-          List.generate(ModelConfigurations.mediapipe.inputHeight, (j) => 
-            List.generate(ModelConfigurations.mediapipe.inputWidth, (k) => 
-              List.generate(3, (l) => 0.5)
-            )
-          )
-        );
-        final testOutput = List.generate(_outputShape[0][0], (i) => List.filled(_outputShape[0][1], 0.0));
-        _interpreter!.run(testInput, testOutput);
+        final testInput = _createTestInput();
+        final testOutputs = _createOutputBuffers();
+        
+        // Use runForMultipleInputs for multiple outputs
+        _interpreter!.runForMultipleInputs([testInput], testOutputs);
         print('MediaPipe model compatibility test passed');
       } catch (testError) {
         print('⚠️  MediaPipe model compatibility test failed: $testError');
@@ -83,10 +83,12 @@ class MediaPipePoseModel extends BaseModel {
       // Get input and output shapes
       _inputShape = _interpreter!.getInputTensors().map((tensor) => tensor.shape).toList();
       _outputShape = _interpreter!.getOutputTensors().map((tensor) => tensor.shape).toList();
+      _outputTypes = _interpreter!.getOutputTensors().map((tensor) => tensor.type).toList();
       
       print('[ISOLATE] MediaPipe Model loaded successfully');
       print('[ISOLATE] Input shape: $_inputShape');
       print('[ISOLATE] Output shape: $_outputShape');
+      print('[ISOLATE] Output types: $_outputTypes');
       
       // Validate model shapes
       if (_inputShape.isEmpty || _outputShape.isEmpty) {
@@ -95,15 +97,11 @@ class MediaPipePoseModel extends BaseModel {
       
       // Test the model with a small inference to check for compatibility issues
       try {
-        final testInput = List.generate(1, (i) => 
-          List.generate(ModelConfigurations.mediapipe.inputHeight, (j) => 
-            List.generate(ModelConfigurations.mediapipe.inputWidth, (k) => 
-              List.generate(3, (l) => 0.5)
-            )
-          )
-        );
-        final testOutput = List.generate(_outputShape[0][0], (i) => List.filled(_outputShape[0][1], 0.0));
-        _interpreter!.run(testInput, testOutput);
+        final testInput = _createTestInput();
+        final testOutputs = _createOutputBuffers();
+        
+        // Use runForMultipleInputs for multiple outputs
+        _interpreter!.runForMultipleInputs([testInput], testOutputs);
         print('[ISOLATE] MediaPipe model compatibility test passed');
       } catch (testError) {
         print('[ISOLATE] ⚠️  MediaPipe model compatibility test failed: $testError');
@@ -131,28 +129,60 @@ class MediaPipePoseModel extends BaseModel {
     }
 
     try {
-      // Get input dimensions from model configuration
-      final inputWidth = ModelConfigurations.mediapipe.inputWidth;
-      final inputHeight = ModelConfigurations.mediapipe.inputHeight;
+      // Decode image from bytes (following YOLOv5 pattern)
+      img.Image? image = img.decodeImage(frameData);
+      if (image == null) {
+        print('Failed to decode image for MediaPipe');
+        return [];
+      }
 
-      // Preprocess image for MediaPipe pose model
-      final input = preprocessImageForPose(
-        frameData,
-        inputWidth,
-        inputHeight,
+      print('Processing frame: ${image.width}x${image.height} -> ${modelInfo.inputWidth}x${modelInfo.inputHeight}');
+
+      // Resize image to model input size (256x256 for MediaPipe)
+      img.Image resizedImage = img.copyResize(
+        image,
+        width: modelInfo.inputWidth,
+        height: modelInfo.inputHeight,
+        interpolation: img.Interpolation.linear,
       );
 
-      // Prepare output buffer
-      // MediaPipe pose model typically outputs [1, 195] for 33 landmarks * 5 values (x, y, z, visibility, presence)
-      // But we'll check the actual output shape
-      final outputShape = _outputShape[0];
-      final output = List.generate(outputShape[0], (i) => List.filled(outputShape[1], 0.0));
+      // Convert image to input tensor format
+      var inputBytes = _imageToByteListFloat32(resizedImage);
+      var input = TFLiteUtils.reshapeInput4D(
+        inputBytes, 
+        modelInfo.inputHeight, 
+        modelInfo.inputWidth, 
+        3
+      );
 
-      // Run inference
-      _interpreter!.run(input, output);
+      // Create output buffers for multiple outputs
+      final outputBuffers = _createOutputBuffers();
 
-      // Parse the output to detection results
-      return _parsePoseLandmarks(output[0]);
+      print('Running MediaPipe inference...');
+      // Run inference with multiple outputs
+      _interpreter!.runForMultipleInputs([input], outputBuffers);
+
+      // Parse the main landmarks output (typically index 0)
+      final landmarksBuffer = outputBuffers[0] as ByteData;
+      final landmarksList = landmarksBuffer.buffer.asFloat32List();
+      
+      // Check confidence from identity outputs if available
+      double confidence = 1.0;
+      if (outputBuffers.length > 1) {
+        final identityBuffer = outputBuffers[1] as ByteData;
+        final identityList = identityBuffer.buffer.asFloat32List();
+        if (identityList.isNotEmpty) {
+          confidence = identityList[0];
+        }
+      }
+
+      print('MediaPipe inference completed. Model confidence: $confidence');
+
+      // Parse the landmarks with confidence check
+      final results = _parsePoseLandmarks(landmarksList, confidence);
+      print('Detected ${results.length} pose landmarks');
+      
+      return results;
     } catch (e) {
       print('Error during MediaPipe inference: $e');
       
@@ -161,59 +191,73 @@ class MediaPipePoseModel extends BaseModel {
     }
   }
 
-  /// Preprocess image for MediaPipe pose model
-  List<List<List<List<double>>>> preprocessImageForPose(
-    Uint8List imageData,
-    int targetWidth,
-    int targetHeight,
-  ) {
-    try {
-      // Create input tensor with proper dimensions [batch_size, height, width, channels]
-      final input = List.generate(1, (i) => 
-        List.generate(targetHeight, (j) => 
-          List.generate(targetWidth, (k) => 
-            List.generate(3, (l) => 0.0)
-          )
+  /// Convert image to input tensor format (following YOLOv5 pattern)
+  Float32List _imageToByteListFloat32(img.Image image) {
+    final convertedBytes = Float32List(1 * modelInfo.inputHeight * modelInfo.inputWidth * 3);
+    
+    int pixelIndex = 0;
+    for (int i = 0; i < modelInfo.inputHeight; i++) {
+      for (int j = 0; j < modelInfo.inputWidth; j++) {
+        final pixel = image.getPixel(j, i);
+        // Normalize to [0, 1] range
+        convertedBytes[pixelIndex++] = pixel.r / 255.0;
+        convertedBytes[pixelIndex++] = pixel.g / 255.0;
+        convertedBytes[pixelIndex++] = pixel.b / 255.0;
+      }
+    }
+    
+    return convertedBytes;
+  }
+
+  /// Create test input for model validation
+  List<List<List<List<double>>>> _createTestInput() {
+    final inputHeight = ModelConfigurations.mediapipe.inputHeight;
+    final inputWidth = ModelConfigurations.mediapipe.inputWidth;
+    
+    return List.generate(1, (i) => 
+      List.generate(inputHeight, (j) => 
+        List.generate(inputWidth, (k) => 
+          List.generate(3, (l) => 0.5)
         )
-      );
+      )
+    );
+  }
+
+  /// Create output buffers for multiple outputs
+  Map<int, Object> _createOutputBuffers() {
+    final outputs = <int, Object>{};
+    
+    for (int i = 0; i < _outputShape.length; i++) {
+      final shape = _outputShape[i];
       
-      // Simple preprocessing - normalize pixels to 0-1 range
-      // In a real implementation, you would:
-      // 1. Decode the image from Uint8List
-      // 2. Resize to target dimensions
-      // 3. Convert to RGB format
-      // 4. Normalize pixel values
-      
-      // For now, fill with dummy normalized data to prevent inference errors
-      for (int h = 0; h < targetHeight; h++) {
-        for (int w = 0; w < targetWidth; w++) {
-          input[0][h][w][0] = 0.5; // R channel
-          input[0][h][w][1] = 0.5; // G channel  
-          input[0][h][w][2] = 0.5; // B channel
-        }
+      // Calculate total elements in the tensor
+      int totalElements = 1;
+      for (int dim in shape) {
+        totalElements *= dim;
       }
       
-      return input;
-    } catch (e) {
-      print('Error in MediaPipe preprocessing: $e');
-      // Return fallback tensor
-      return List.generate(1, (i) => 
-        List.generate(targetHeight, (j) => 
-          List.generate(targetWidth, (k) => 
-            List.generate(3, (l) => 0.0)
-          )
-        )
-      );
+      // Create ByteData buffer with proper size (Float32 = 4 bytes per element)
+      final buffer = ByteData(totalElements * 4);
+      outputs[i] = buffer;
     }
+    
+    return outputs;
   }
 
   /// Parse MediaPipe pose landmarks from model output
-  List<DetectionResult> _parsePoseLandmarks(List<double> output) {
+  List<DetectionResult> _parsePoseLandmarks(Float32List output, double modelConfidence) {
     final landmarks = <DetectionResult>[];
     
     // MediaPipe pose model outputs 33 landmarks, each with 5 values (x, y, z, visibility, presence)
     const int landmarksCount = 33;
     const int valuesPerLandmark = 5;
+    const double minConfidenceThreshold = 0.5; // Minimum confidence threshold from working example
+    
+    // Check if model confidence is below threshold (similar to working example)
+    if (modelConfidence < minConfidenceThreshold) {
+      print('MediaPipe model confidence too low: $modelConfidence');
+      return landmarks; // Return empty list
+    }
     
     // Landmark names for MediaPipe pose model (33 landmarks)
     const landmarkNames = [
@@ -226,6 +270,7 @@ class MediaPipePoseModel extends BaseModel {
       'right_heel', 'left_foot_index', 'right_foot_index'
     ];
 
+    // Parse landmarks similar to working example
     for (int i = 0; i < landmarksCount && i * valuesPerLandmark + 4 < output.length; i++) {
       final baseIndex = i * valuesPerLandmark;
       
@@ -235,7 +280,7 @@ class MediaPipePoseModel extends BaseModel {
       final visibility = output[baseIndex + 3]; // visibility score
       final presence = output[baseIndex + 4];   // presence score
       
-      // Only include landmarks that are visible and present
+      // Calculate confidence similar to working example
       final confidence = (visibility + presence) / 2.0;
       
       if (confidence > 0.3) { // Minimum confidence threshold
@@ -252,6 +297,7 @@ class MediaPipePoseModel extends BaseModel {
       }
     }
 
+    print('MediaPipe parsed ${landmarks.length} landmarks with model confidence: $modelConfidence');
     return landmarks;
   }
 

@@ -19,7 +19,6 @@ dependencies:
   get: ^4.7.2
   # system information
   device_info_plus: ^11.5.0
-  
 
 dev_dependencies:
   flutter_test:

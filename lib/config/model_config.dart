@@ -95,8 +95,8 @@ class ModelConfigurations {
       'left_wrist', 'right_wrist', 'left_elbow', 'right_elbow'
     ],
     defaultConfidenceThreshold: 0.5,
-    inputWidth: 192,
-    inputHeight: 192,
+    inputWidth: 256,
+    inputHeight: 256,
     modelPath: 'assets/models/pose_landmark_full.tflite',
   );
 
