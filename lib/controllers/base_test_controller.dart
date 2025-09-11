@@ -264,7 +264,6 @@ abstract class BaseTestController {
     _isTestRunning = false;
     _isCompleted = false;
     _currentStepIndex = 0;
-    _isProcessing = false; // Reset processing flag
     
     for (var step in testSteps) {
       step.isActive = false;
@@ -279,7 +278,6 @@ abstract class BaseTestController {
   /// Force stop the test
   void forceStopTest() {
     _isTestRunning = false;
-    _isProcessing = false; // Reset processing flag
     _safeCallback(onTestUpdate);
   }
 

@@ -6,28 +6,9 @@ import '../types/detection_types.dart';
 import 'dart:typed_data';
 
 /// Chair detection service using existing YOLOv5 model
-class ChairDetectionService extends BaseDetectionService {
-  final YOLOv5DetectionService _yoloService = YOLOv5DetectionService();
-
+class ChairDetectionService extends YOLOv5DetectionService {
   @override
-  String get serviceType => 'Chair Detection Service (YOLOv5)';
-
-  @override
-  BaseModel? get currentModel => _yoloService.currentModel;
-
-  @override
-  Future<void> initialize() async {
-    try {
-      print('Initializing Chair Detection Service...');
-      await _yoloService.initialize();
-      setInitialized(true);
-      print('Chair Detection Service initialized successfully');
-    } catch (e) {
-      print('Error initializing Chair Detection Service: $e');
-      setInitialized(false);
-      rethrow;
-    }
-  }
+  String get serviceType => 'Chair Detection Service (YOLOv5 filtered)';
 
   @override
   Future<List<DetectionResult>> processFrame(Uint8List frameData, int imageHeight, int imageWidth) async {
@@ -36,18 +17,20 @@ class ChairDetectionService extends BaseDetectionService {
     }
 
     try {
-      // Use existing YOLOv5 service to detect objects including chairs
-      final results = await _yoloService.processFrame(frameData, imageHeight, imageWidth);
+      // Get all YOLOv5 detections
+      final allDetections = await super.processFrame(frameData, imageHeight, imageWidth);
       
-      // Filter for chairs specifically
-      final chairs = results.where((r) => r.label == 'chair').toList();
-      print('Chair Detection: Found ${chairs.length} chairs out of ${results.length} total detections');
+      // Filter for chairs only
+      final chairDetections = allDetections.where((d) => d.label.toLowerCase() == 'chair').toList();
       
-      updateDetections(results);
-      return results;
+      print('Chair Detection: Found ${chairDetections.length} chairs out of ${allDetections.length} total detections');
+      
+      // Update cache with filtered results
+      updateDetections(chairDetections);
+      return chairDetections;
     } catch (e) {
       print('Error processing frame in Chair Detection Service: $e');
-      return [];
+      return [DetectionResult.createError('Chair Detection', e.toString())];
     }
   }
 
@@ -76,12 +59,6 @@ class ChairDetectionService extends BaseDetectionService {
     
     print('Chair validation: position($centerX, $centerY), confidence(${chair.confidence}), valid: $isValidPosition');
     return isValidPosition;
-  }
-
-  @override
-  void dispose() {
-    _yoloService.dispose();
-    super.dispose();
   }
 }
 
@@ -122,7 +99,7 @@ class PoseDetectionService extends BaseDetectionService {
       return results;
     } catch (e) {
       print('Error processing frame in Pose Detection Service: $e');
-      return [];
+      return [DetectionResult.createError('Pose Detection', e.toString())];
     }
   }
 

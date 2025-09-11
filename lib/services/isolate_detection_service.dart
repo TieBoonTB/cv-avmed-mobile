@@ -88,3 +88,34 @@ class IsolateYOLOv5DetectionService extends IsolateDetectionService {
 class IsolateAVMedDetectionService extends IsolateDetectionService {
   IsolateAVMedDetectionService() : super('avmed');
 }
+
+/// Chair detection service using isolates (extends YOLOv5 with filtering)
+class IsolateChairDetectionService extends IsolateYOLOv5DetectionService {
+  @override
+  String get serviceType => 'Isolate-based Chair Detection (YOLOv5 filtered)';
+
+  @override
+  Future<List<DetectionResult>> processFrame(
+    Uint8List frameData,
+    int imageHeight,
+    int imageWidth,
+  ) async {
+    // Get all YOLOv5 detections from the isolate
+    final allDetections = await super.processFrame(frameData, imageHeight, imageWidth);
+    
+    // Filter for chairs only at the service level
+    final chairDetections = allDetections.where((d) => d.label.toLowerCase() == 'chair').toList();
+    
+    print('Chair Detection: Found ${chairDetections.length} chairs out of ${allDetections.length} total detections');
+    
+    // Update cached results with filtered detections
+    updateDetections(chairDetections);
+    
+    return chairDetections;
+  }
+}
+
+/// Pose detection service using isolates
+class IsolatePoseDetectionService extends IsolateDetectionService {
+  IsolatePoseDetectionService() : super('pose');
+}

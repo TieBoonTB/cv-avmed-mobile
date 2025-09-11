@@ -7,6 +7,8 @@ import '../services/base_detection_service.dart';
 import '../utils/camera_image_utils.dart';
 import '../types/detection_types.dart';
 
+enum DetectionModel { yolov5, avmed, chairDetection, poseDetection }
+
 class CameraTestPage extends StatefulWidget {
   const CameraTestPage({super.key});
 
@@ -18,11 +20,13 @@ class _CameraTestPageState extends State<CameraTestPage> {
   // Camera controller
   final CameraFeedController _cameraController = Get.put(CameraFeedController());
   
-  // Detection services (isolate-based only)
+  // Detection services (isolate-based and SPPB services)
   IsolateYOLOv5DetectionService? _isolateYolov5Service;
   IsolateAVMedDetectionService? _isolateAvmedService;
+  IsolateChairDetectionService? _isolateChairDetectionService;
+  IsolatePoseDetectionService? _isolatePoseDetectionService;
   BaseDetectionService? _currentDetectionService;
-  bool _useAVMedModel = false; // Start with YOLOv5 by default
+  DetectionModel _currentModel = DetectionModel.yolov5; // Start with YOLOv5 by default
   bool _isDetectionServiceReady = false;
   
   // Detection testing variables
@@ -42,14 +46,20 @@ class _CameraTestPageState extends State<CameraTestPage> {
 
   void _setupDetectionService() async {
     try {
-      print('Initializing isolate-based detection services...');
+      print('Initializing detection services...');
       
       // Initialize isolate-based services
       _isolateYolov5Service = IsolateYOLOv5DetectionService();
       _isolateAvmedService = IsolateAVMedDetectionService();
       
+      // Initialize isolate SPPB services
+      _isolateChairDetectionService = IsolateChairDetectionService();
+      _isolatePoseDetectionService = IsolatePoseDetectionService();
+      
       bool yolov5Success = false;
       bool avmedSuccess = false;
+      bool chairSuccess = false;
+      bool poseSuccess = false;
       
       try {
         await _isolateYolov5Service?.initialize();
@@ -67,28 +77,38 @@ class _CameraTestPageState extends State<CameraTestPage> {
         print('Failed to initialize isolate AVMED service: $e');
       }
       
-      if (yolov5Success || avmedSuccess) {
-        // Set current service based on model selection and availability
-        if (_useAVMedModel && avmedSuccess) {
-          _currentDetectionService = _isolateAvmedService;
-        } else if (!_useAVMedModel && yolov5Success) {
-          _currentDetectionService = _isolateYolov5Service;
-        } else if (yolov5Success) {
-          // Fallback to YOLOv5 if AVMED requested but failed
-          _currentDetectionService = _isolateYolov5Service;
-          _useAVMedModel = false;
-        } else if (avmedSuccess) {
-          // Fallback to AVMED if YOLOv5 requested but failed
-          _currentDetectionService = _isolateAvmedService;
-          _useAVMedModel = true;
-        }
+      try {
+        await _isolateChairDetectionService?.initialize();
+        print('Isolate Chair Detection service initialized');
+        chairSuccess = true;
+      } catch (e) {
+        print('Failed to initialize isolate Chair Detection service: $e');
+      }
+      
+      try {
+        await _isolatePoseDetectionService?.initialize();
+        print('Isolate Pose Detection service initialized');
+        poseSuccess = true;
+      } catch (e) {
+        print('Failed to initialize isolate Pose Detection service: $e');
+      }
+      
+      print('Service initialization results:');
+      print('  YOLOv5: ${yolov5Success ? "✅" : "❌"}');
+      print('  AVMED: ${avmedSuccess ? "✅" : "❌"}');
+      print('  Chair Detection: ${chairSuccess ? "✅" : "❌"}');
+      print('  Pose Detection: ${poseSuccess ? "✅" : "❌"}');
+      
+      if (yolov5Success || avmedSuccess || chairSuccess || poseSuccess) {
+        // Set initial service based on current model
+        _updateCurrentService();
       }
       
       setState(() {
         _isDetectionServiceReady = _currentDetectionService?.isInitialized ?? false;
       });
       
-      print('Detection service setup complete. Ready: $_isDetectionServiceReady, YOLOv5: $yolov5Success, AVMED: $avmedSuccess');
+      print('Detection service setup complete. Ready: $_isDetectionServiceReady');
     } catch (e) {
       _showMessage('Failed to initialize detection models. Please try restarting the page.');
       
@@ -96,11 +116,31 @@ class _CameraTestPageState extends State<CameraTestPage> {
       try {
         _isolateYolov5Service?.dispose();
         _isolateAvmedService?.dispose();
+        _isolateChairDetectionService?.dispose();
+        _isolatePoseDetectionService?.dispose();
       } catch (_) {}
     }
   }
+  
+  /// Update the current detection service based on selected model
+  void _updateCurrentService() {
+    switch (_currentModel) {
+      case DetectionModel.yolov5:
+        _currentDetectionService = _isolateYolov5Service?.isInitialized == true ? _isolateYolov5Service : null;
+        break;
+      case DetectionModel.avmed:
+        _currentDetectionService = _isolateAvmedService?.isInitialized == true ? _isolateAvmedService : null;
+        break;
+      case DetectionModel.chairDetection:
+        _currentDetectionService = _isolateChairDetectionService?.isInitialized == true ? _isolateChairDetectionService : null;
+        break;
+      case DetectionModel.poseDetection:
+        _currentDetectionService = _isolatePoseDetectionService?.isInitialized == true ? _isolatePoseDetectionService : null;
+        break;
+    }
+  }
 
-  /// Toggle between AVMED and YOLOv5 models
+  /// Toggle between detection models (YOLOv5, AVMED, Chair Detection, Pose Detection)
   void _toggleDetectionModel() {
     if (!_isDetectionServiceReady) {
       _showMessage('Detection services not ready yet');
@@ -114,14 +154,23 @@ class _CameraTestPageState extends State<CameraTestPage> {
     }
 
     setState(() {
-      _useAVMedModel = !_useAVMedModel;
-      
-      // Switch to appropriate isolate service
-      if (_useAVMedModel && _isolateAvmedService?.isInitialized == true) {
-        _currentDetectionService = _isolateAvmedService;
-      } else if (!_useAVMedModel && _isolateYolov5Service?.isInitialized == true) {
-        _currentDetectionService = _isolateYolov5Service;
+      // Cycle through all available models
+      switch (_currentModel) {
+        case DetectionModel.yolov5:
+          _currentModel = DetectionModel.avmed;
+          break;
+        case DetectionModel.avmed:
+          _currentModel = DetectionModel.chairDetection;
+          break;
+        case DetectionModel.chairDetection:
+          _currentModel = DetectionModel.poseDetection;
+          break;
+        case DetectionModel.poseDetection:
+          _currentModel = DetectionModel.yolov5;
+          break;
       }
+      
+      _updateCurrentService();
       
       // Reset statistics when switching models
       _processedFrames = 0;
@@ -138,7 +187,44 @@ class _CameraTestPageState extends State<CameraTestPage> {
 
   /// Get current model name for display
   String _getCurrentModelName() {
-    return _useAVMedModel ? 'AVMED' : 'YOLOv5';
+    switch (_currentModel) {
+      case DetectionModel.yolov5:
+        return 'YOLOv5';
+      case DetectionModel.avmed:
+        return 'AVMED';
+      case DetectionModel.chairDetection:
+        return 'Chair Detection';
+      case DetectionModel.poseDetection:
+        return 'Pose Detection';
+    }
+  }
+  
+  /// Get color for current model
+  Color _getModelColor() {
+    switch (_currentModel) {
+      case DetectionModel.yolov5:
+        return Colors.blue.withValues(alpha: 0.8);
+      case DetectionModel.avmed:
+        return Colors.purple.withValues(alpha: 0.8);
+      case DetectionModel.chairDetection:
+        return Colors.green.withValues(alpha: 0.8);
+      case DetectionModel.poseDetection:
+        return Colors.orange.withValues(alpha: 0.8);
+    }
+  }
+  
+  /// Get icon for current model
+  IconData _getModelIcon() {
+    switch (_currentModel) {
+      case DetectionModel.yolov5:
+        return Icons.visibility;
+      case DetectionModel.avmed:
+        return Icons.science;
+      case DetectionModel.chairDetection:
+        return Icons.chair;
+      case DetectionModel.poseDetection:
+        return Icons.accessibility_new;
+    }
   }
 
   /// Start object detection testing
@@ -198,12 +284,7 @@ class _CameraTestPageState extends State<CameraTestPage> {
 
     try {
       // Convert camera image to bytes for ML processing (measure timing)
-      final conversionStart = DateTime.now();
       final imageBytes = CameraImageUtils.convertCameraImageToBytes(currentImage, isFrontCamera: _cameraController.isFrontCamera);
-      final conversionTime = DateTime.now().difference(conversionStart).inMilliseconds;
-      if (conversionTime > 10) {
-        print('Image conversion took ${conversionTime}ms (main thread)');
-      }
       
       if (imageBytes.isEmpty) {
         print('Failed to convert camera image to bytes');
@@ -227,7 +308,13 @@ class _CameraTestPageState extends State<CameraTestPage> {
       if (results.isNotEmpty) {
         print('  Detected ${results.length} objects:');
         for (final result in results) {
-          print('    ${result.label}: ${(result.confidence * 100).toStringAsFixed(1)}%');
+          if (result.isError) {
+            print('    ❌ ${result.label}');
+          } else if (result.isWarning) {
+            print('    ⚠️  ${result.label}');
+          } else {
+            print('    ${result.label}: ${(result.confidence * 100).toStringAsFixed(1)}%');
+          }
         }
       } else {
         print('  No objects detected');
@@ -423,9 +510,7 @@ class _CameraTestPageState extends State<CameraTestPage> {
             right: 20,
             child: Container(
               decoration: BoxDecoration(
-                color: _useAVMedModel 
-                  ? Colors.purple.withValues(alpha: 0.8)
-                  : Colors.blue.withValues(alpha: 0.8),
+                color: _getModelColor(),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: MaterialButton(
@@ -436,7 +521,7 @@ class _CameraTestPageState extends State<CameraTestPage> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      _useAVMedModel ? Icons.science : Icons.visibility,
+                      _getModelIcon(),
                       color: Colors.white,
                       size: 16,
                     ),
@@ -487,6 +572,88 @@ class _CameraTestPageState extends State<CameraTestPage> {
       );
     }
 
+    // Check if we have any error or warning detection results
+    final errorDetection = _lastDetections.firstWhere(
+      (d) => d.isError,
+      orElse: () => DetectionResult(label: '', confidence: 0.0, box: DetectionBox(x: 0, y: 0, width: 0, height: 0)),
+    );
+    
+    final warningDetection = _lastDetections.firstWhere(
+      (d) => d.isWarning,
+      orElse: () => DetectionResult(label: '', confidence: 0.0, box: DetectionBox(x: 0, y: 0, width: 0, height: 0)),
+    );
+    
+    if (errorDetection.label.isNotEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.red.withValues(alpha: 0.8),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.red, width: 2),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.error, color: Colors.white, size: 20),
+                SizedBox(width: 8),
+                Text(
+                  'Model Error',
+                  style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              errorDetection.label,
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Try switching to a different detection model',
+              style: TextStyle(color: Colors.white70, fontSize: 11, fontStyle: FontStyle.italic),
+            ),
+          ],
+        ),
+      );
+    }
+    
+    if (warningDetection.label.isNotEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.orange.withValues(alpha: 0.8),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.orange, width: 2),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.warning, color: Colors.white, size: 20),
+                SizedBox(width: 8),
+                Text(
+                  'Model Warning',
+                  style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              warningDetection.label,
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -501,15 +668,19 @@ class _CameraTestPageState extends State<CameraTestPage> {
             style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
-          ...(_lastDetections.take(5).map((detection) => Padding(
+          ...(_lastDetections.where((d) => !d.isError && !d.isWarning).take(5).map((detection) => Padding(
             padding: const EdgeInsets.symmetric(vertical: 2),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  detection.label,
-                  style: const TextStyle(color: Colors.white, fontSize: 14),
+                Expanded(
+                  child: Text(
+                    detection.label,
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
+                const SizedBox(width: 8),
                 Text(
                   '${(detection.confidence * 100).toStringAsFixed(1)}%',
                   style: TextStyle(
@@ -521,9 +692,9 @@ class _CameraTestPageState extends State<CameraTestPage> {
               ],
             ),
           )).toList()),
-          if (_lastDetections.length > 5)
+          if (_lastDetections.where((d) => !d.isError && !d.isWarning).length > 5)
             Text(
-              '... and ${_lastDetections.length - 5} more',
+              '... and ${_lastDetections.where((d) => !d.isError && !d.isWarning).length - 5} more',
               style: const TextStyle(color: Colors.white70, fontSize: 12),
             ),
         ],

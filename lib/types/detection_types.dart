@@ -64,6 +64,32 @@ class DetectionResult {
     this.status = DetectionStatus.success,
   });
 
+  /// Create an error detection result for display in UI
+  static DetectionResult createError(String modelName, String errorMessage) {
+    return DetectionResult(
+      label: '$modelName Error: $errorMessage',
+      confidence: 0.0,
+      box: const DetectionBox(x: 0.5, y: 0.5, width: 0.1, height: 0.1),
+      status: DetectionStatus.failure,
+    );
+  }
+
+  /// Create a warning detection result for display in UI
+  static DetectionResult createWarning(String modelName, String warningMessage) {
+    return DetectionResult(
+      label: '$modelName Warning: $warningMessage',
+      confidence: 0.0,
+      box: const DetectionBox(x: 0.5, y: 0.5, width: 0.1, height: 0.1),
+      status: DetectionStatus.warning,
+    );
+  }
+
+  /// Check if this detection result represents an error
+  bool get isError => status == DetectionStatus.failure || label.contains('Error:');
+
+  /// Check if this detection result represents a warning
+  bool get isWarning => status == DetectionStatus.warning || label.contains('Warning:');
+
   /// Convert to map for serialization
   Map<String, dynamic> toMap() {
     return {

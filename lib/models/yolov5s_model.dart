@@ -137,7 +137,7 @@ class YOLOv5sModel extends BaseModel {
       return detections;
     } catch (e) {
       print('Error processing frame with YOLOv5s: $e');
-      return [];
+      return [DetectionResult.createError('YOLOv5', e.toString())];
     }
   }
 

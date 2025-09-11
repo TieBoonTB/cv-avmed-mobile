@@ -22,7 +22,7 @@ class MockModel extends BaseModel {
   @override
   Future<List<DetectionResult>> processFrame(Uint8List frameData, int imageHeight, int imageWidth) async {
     if (!_isInitialized) {
-      throw Exception('Model not initialized');
+      return [DetectionResult.createError('Mock Model', 'Model not initialized')];
     }
     
     await Future.delayed(const Duration(milliseconds: 50));

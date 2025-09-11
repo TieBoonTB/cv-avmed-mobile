@@ -166,12 +166,16 @@ class IsolateInferenceService {
         final yoloBytes = await TFLiteUtils.loadModelBytesFromAsset('assets/models/yolov5s_f16.tflite');
         return {'main': yoloBytes};
         
-      case 'avmed':
+        case 'avmed':
         final mainBytes = await TFLiteUtils.loadModelBytesFromAsset('assets/models/av_med_16-12-24_f16.tflite');
         final faceBytes = await TFLiteUtils.loadModelBytesFromAsset('assets/models/face-detection_f16.tflite');
         return {'main': mainBytes, 'face': faceBytes};
         
-      default:
+      case 'pose':
+      case 'mediapipe':
+      case 'sppb':
+        final poseBytes = await TFLiteUtils.loadModelBytesFromAsset('assets/models/pose_landmark_full.tflite');
+        return {'main': poseBytes};      default:
         throw Exception('Unknown model type: $modelType');
     }
   }

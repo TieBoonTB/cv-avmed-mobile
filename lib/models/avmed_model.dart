@@ -122,7 +122,7 @@ class AVMedModel extends BaseModel {
       return allDetections;
     } catch (e) {
       print('Error in AVMED frame processing: $e');
-      return [];
+      return [DetectionResult.createError('AVMED', e.toString())];
     }
   }
 
