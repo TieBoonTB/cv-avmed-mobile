@@ -1,6 +1,6 @@
 import '../controllers/base_test_controller.dart';
 import '../services/base_detection_service.dart';
-import '../services/yolov5_detection_service.dart';
+import '../services/isolate_detection_service.dart';
 import '../types/detection_types.dart';
 
 /// Object detection test controller using YOLOv5
@@ -16,7 +16,7 @@ class ObjectDetectionTestController extends BaseTestController {
 
   @override
   BaseDetectionService createDetectionService() {
-    return YOLOv5DetectionService();
+    return IsolateYOLOv5DetectionService();
   }
 
   @override
@@ -82,8 +82,8 @@ class ObjectDetectionTestController extends BaseTestController {
     }
   }
   
-  /// Get YOLOv5 detection service for advanced operations
-  YOLOv5DetectionService get yoloService => detectionService as YOLOv5DetectionService;
+  /// Get isolate-based YOLOv5 detection service for advanced operations
+  IsolateYOLOv5DetectionService get yoloService => detectionService as IsolateYOLOv5DetectionService;
   
   /// Get all current detections with their confidence scores
   List<DetectionResult> getAllDetections() {

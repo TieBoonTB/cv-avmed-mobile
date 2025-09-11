@@ -1,6 +1,6 @@
 import '../controllers/base_test_controller.dart';
 import '../services/base_detection_service.dart';
-import '../services/avmed_detection_service.dart';
+import '../services/isolate_detection_service.dart';
 import '../types/detection_types.dart';
 
 /// AVMED Test Controller for medication adherence monitoring
@@ -17,7 +17,7 @@ class AVMedTestController extends BaseTestController {
 
   @override
   BaseDetectionService createDetectionService() {
-    return AVMedDetectionService();
+    return IsolateAVMedDetectionService();
   }
 
   @override
@@ -207,10 +207,8 @@ class AVMedTestController extends BaseTestController {
     print('AVMED Step started: ${step.label}');
     
     // AVMED-specific step initialization
-    if (detectionService is AVMedDetectionService) {
-      final avmedService = detectionService as AVMedDetectionService;
-      final stats = avmedService.getDetectionStats();
-      print('Detection stats at step start: $stats');
+    if (detectionService is IsolateAVMedDetectionService) {
+      print('Using isolate-based AVMED detection service');
     }
   }
 
@@ -219,10 +217,8 @@ class AVMedTestController extends BaseTestController {
     print('AVMED Step completed: ${step.label}, Success: $isSuccess');
     
     // Log detailed step completion information
-    if (detectionService is AVMedDetectionService) {
-      final avmedService = detectionService as AVMedDetectionService;
-      final stats = avmedService.getDetectionStats();
-      print('Final detection stats for step: $stats');
+    if (detectionService is IsolateAVMedDetectionService) {
+      print('Isolate-based AVMED detection completed for step');
     }
     
     // Additional logging for medication adherence compliance

@@ -27,6 +27,7 @@ class _CameraTestPageState extends State<CameraTestPage> {
   
   // Detection testing variables
   bool _isDetectionRunning = false;
+  bool _isProcessing = false;
   Timer? _detectionTimer;
   List<DetectionResult> _lastDetections = [];
   int _processedFrames = 0;
@@ -163,7 +164,9 @@ class _CameraTestPageState extends State<CameraTestPage> {
   void _startDetectionTimer() {
     _detectionTimer?.cancel();
     _detectionTimer = Timer.periodic(Duration(milliseconds: _detectionInterval), (timer) {
-      _processCurrentCameraImage();
+      if (!_isProcessing) {
+        _processCurrentCameraImage();
+      }
     });
   }
 
@@ -182,10 +185,14 @@ class _CameraTestPageState extends State<CameraTestPage> {
 
   /// Process current camera image for object detection
   Future<void> _processCurrentCameraImage() async {
+    if (_isProcessing) return;
+    _isProcessing = true;
+    
     final currentImage = _cameraController.currentImage;
     
     if (currentImage == null) {
       print('No camera image available');
+      _isProcessing = false;
       return;
     }
 
@@ -200,6 +207,7 @@ class _CameraTestPageState extends State<CameraTestPage> {
       
       if (imageBytes.isEmpty) {
         print('Failed to convert camera image to bytes');
+        _isProcessing = false;
         return;
       }
 
@@ -227,6 +235,8 @@ class _CameraTestPageState extends State<CameraTestPage> {
 
     } catch (e) {
       print('Error processing camera image: $e');
+    } finally {
+      _isProcessing = false;
     }
   }
 

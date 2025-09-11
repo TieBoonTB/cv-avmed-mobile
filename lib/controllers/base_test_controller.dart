@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
+import 'dart:async';
 import 'dart:typed_data';
 import '../services/base_detection_service.dart';
 import '../types/detection_types.dart';
@@ -22,6 +23,7 @@ abstract class BaseTestController {
   bool _isCompleted = false;
   int _currentStepIndex = 0;
   bool _isDisposed = false; // Add disposal flag
+  bool _isProcessing = false; // Add processing flag for frame skipping
 
   BaseTestController({
     required this.isTrial,
@@ -167,8 +169,49 @@ abstract class BaseTestController {
     final stepStartTime = DateTime.now();
     final maxDuration = Duration(milliseconds: (step.maxTime * 1000).round());
     
-    // Detection loop
-    while (_isTestRunning && DateTime.now().difference(stepStartTime) < maxDuration) {
+    // Set up detection timer with frame skipping (method 2)
+    Timer? detectionTimer;
+    bool stepCompleted = false;
+    
+    try {
+      // Create timer that fires every 500ms, but skips if processing
+      detectionTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) async {
+        // Check if step should continue
+        if (!_isTestRunning || stepCompleted || DateTime.now().difference(stepStartTime) >= maxDuration) {
+          timer.cancel();
+          return;
+        }
+        
+        // Skip this detection cycle if previous one is still processing
+        if (!_isProcessing) {
+          await _processDetectionForStep(step);
+          
+          // Check if target is reached after processing
+          if (step.isTargetReached) {
+            stepCompleted = true;
+            timer.cancel();
+          }
+        }
+      });
+      
+      // Wait for either completion or timeout
+      while (_isTestRunning && !stepCompleted && DateTime.now().difference(stepStartTime) < maxDuration) {
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+      
+    } finally {
+      detectionTimer?.cancel();
+    }
+    
+    return stepCompleted; // Return true if target was reached, false if timeout
+  }
+  
+  /// Process detection for a single step (with frame skipping protection)
+  Future<void> _processDetectionForStep(TestStep step) async {
+    if (_isProcessing) return;
+    _isProcessing = true;
+    
+    try {
       List<DetectionResult> detections;
       
       if (_detectionService.serviceType.contains('Mock')) {
@@ -197,18 +240,13 @@ abstract class BaseTestController {
       if (processDetectionResult(detections, step)) {
         step.detectedFrameCount++;
         _safeCallback(onTestUpdate);
-        
-        // Check if target is reached
-        if (step.isTargetReached) {
-          return true;
-        }
       }
       
-      // Wait before next detection check
-      await Future.delayed(const Duration(milliseconds: 100)); // Detection Loop Checking: 100ms
+    } catch (e) {
+      print('Error processing detection for step: $e');
+    } finally {
+      _isProcessing = false;
     }
-    
-    return false; // Timeout or failed to meet target
   }
 
   /// End the test
@@ -226,6 +264,7 @@ abstract class BaseTestController {
     _isTestRunning = false;
     _isCompleted = false;
     _currentStepIndex = 0;
+    _isProcessing = false; // Reset processing flag
     
     for (var step in testSteps) {
       step.isActive = false;
@@ -240,6 +279,7 @@ abstract class BaseTestController {
   /// Force stop the test
   void forceStopTest() {
     _isTestRunning = false;
+    _isProcessing = false; // Reset processing flag
     _safeCallback(onTestUpdate);
   }
 
