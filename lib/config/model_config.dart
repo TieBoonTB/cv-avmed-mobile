@@ -70,8 +70,8 @@ class ModelConfigurations {
       'pill on tongue', 'no pill on tongue', 'drink water', 'no pill under tongue'
     ],
     defaultConfidenceThreshold: 0.7, // Based on AVMED pipeline plan
-    inputWidth: 640, // Main model input - may need adjustment based on actual model
-    inputHeight: 640,
+    inputWidth: 224, 
+    inputHeight: 224,
     modelPath: 'assets/models/av_med_16-12-24_f16.tflite',
   );
 

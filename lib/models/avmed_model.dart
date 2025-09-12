@@ -145,8 +145,8 @@ class AVMedModel extends BaseModel {
       frameData,
       imageHeight,
       imageWidth,
-      TFLiteUtils.avmedFaceInputSize,
-      TFLiteUtils.avmedFaceInputSize,
+      modelInfo.inputHeight, // Both models use same 224x224 input size
+      modelInfo.inputWidth,
     );
   }
 
@@ -179,8 +179,8 @@ class AVMedModel extends BaseModel {
   /// Based on: face detection logic with confidence 0.7, NMS 0.5
   Future<List<DetectionResult>> _runFaceDetection(Float32List input, int originalWidth, int originalHeight) async {
     try {
-      // Create input tensor
-      final inputTensor = TFLiteUtils.reshapeInput4D(input, TFLiteUtils.avmedFaceInputSize, TFLiteUtils.avmedFaceInputSize, 3);
+      // Create input tensor - both models use same 224x224 input size
+      final inputTensor = TFLiteUtils.reshapeInput4D(input, modelInfo.inputHeight, modelInfo.inputWidth, 3);
       
       // Create output tensor for face detection
       var output = TFLiteUtils.createOutputForModel(_faceDetectionInterpreter!);

@@ -71,10 +71,10 @@ class TFLiteUtils {
   }
 
   /// AVMED-specific constants
-  static const double avmedMainConfidence = 0.7;
-  static const double avmedFaceConfidence = 0.7;
+  static const double avmedMainConfidence = 0.5;
+  static const double avmedFaceConfidence = 0.5;
   static const double avmedNmsThreshold = 0.5;
-  static const int avmedFaceInputSize = 640;
+  static const int avmedFaceInputSize = 224; // Corrected from debug - both models expect 224x224
 
   /// Preprocess image for AVMED models
   /// Converts BGR→RGB, resizes, normalizes, and formats for inference

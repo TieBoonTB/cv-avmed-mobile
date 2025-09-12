@@ -195,8 +195,13 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
 
   void _updateProgress() {
     final currentStep = _testController?.currentStep;
-    if (currentStep != null) {
-      _progressController.animateTo(currentStep.progress);
+    if (currentStep != null && mounted) {
+      // Animate to the current step's progress
+      _progressController.animateTo(
+        currentStep.progress,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
     }
   }
 
@@ -258,6 +263,8 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   }
 
   void _showCompletionDialog() {
+    final message = _getCompletionMessage();
+        
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -268,7 +275,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
           children: [
             const Icon(Icons.check_circle, color: Colors.green, size: 64),
             const SizedBox(height: 16),
-            Text(_getCompletionMessage()),
+            Text(message),
           ],
         ),
         actions: [
@@ -297,11 +304,37 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   }
 
   String _getCompletionMessage() {
-    final testSteps = _testController?.testSteps ?? [];
-    final successfulSteps = testSteps.where((step) => step.isSuccess).length;
-    final totalSteps = testSteps.length;
+    if (_testController == null) return 'Test completed.';
     
-    return 'Completed $successfulSteps out of $totalSteps steps successfully.';
+    final testSteps = _testController!.testSteps;
+    final successfulSteps = _testController!.successfulStepsCount;
+    final completedSteps = _testController!.completedStepsCount;
+    final totalSteps = testSteps.length;
+    final overallProgress = _testController!.overallProgress;
+    
+    String message;
+    if (successfulSteps == totalSteps) {
+      message = 'Excellent! All $totalSteps steps completed successfully!';
+    } else if (successfulSteps > 0) {
+      message = 'Completed $successfulSteps out of $totalSteps steps successfully.';
+      message += '\nOverall progress: ${(overallProgress * 100).toInt()}%';
+    } else {
+      message = 'Test completed. Please try again for better results.';
+      message += '\nOverall progress: ${(overallProgress * 100).toInt()}%';
+    }
+    
+    // Add step details if some failed
+    if (successfulSteps < totalSteps && completedSteps > 0) {
+      message += '\n\nStep Details:';
+      for (int i = 0; i < testSteps.length; i++) {
+        final step = testSteps[i];
+        final status = step.isSuccess ? '✅' : step.isDone ? '⚠️' : '❌';
+        final progress = (step.progress * 100).toInt();
+        message += '\n$status Step ${i + 1}: ${step.label} ($progress%)';
+      }
+    }
+    
+    return message;
   }
 
   void _resetTest() {
@@ -484,14 +517,16 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     final currentStepIndex = _testController!.currentStepIndex;
     
     if (!_testController!.hasTestStarted) {
-      return 'Ready to start';
+      return 'Ready to start • ${testSteps.length} steps';
     } else if (_testController!.isCompleted) {
-      return 'Test completed';
+      return 'Test completed successfully';
     } else if (currentStepIndex < testSteps.length) {
-      return 'Step ${currentStepIndex + 1}/${testSteps.length}: ${testSteps[currentStepIndex].label}';
+      final currentStep = testSteps[currentStepIndex];
+      final progress = (currentStep.progress * 100).toInt();
+      return 'Step ${currentStepIndex + 1}/${testSteps.length} • $progress% • ${currentStep.label}';
     }
     
-    return 'In progress';
+    return 'Test in progress...';
   }
 
   Widget _buildInstructionVideo() {
@@ -558,13 +593,25 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
           builder: (context, child) => LinearProgressIndicator(
             value: _progressController.value,
             backgroundColor: Colors.white30,
-            valueColor: const AlwaysStoppedAnimation<Color>(Colors.green),
+            valueColor: AlwaysStoppedAnimation<Color>(
+              currentStep.isActive ? Colors.blue : 
+              currentStep.isSuccess ? Colors.green : Colors.orange
+            ),
           ),
         ),
         const SizedBox(height: 4),
-        Text(
-          '${(currentStep.progress * 100).toStringAsFixed(0)}% complete',
-          style: const TextStyle(color: Colors.white70, fontSize: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              '${(currentStep.progress * 100).toStringAsFixed(0)}% complete',
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+            Text(
+              '${currentStep.detectedFrameCount}/${currentStep.targetFrameCount} detections',
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+          ],
         ),
       ],
     );
@@ -574,34 +621,78 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     if (_testController == null) return const SizedBox();
     
     final detections = _testController!.detectionService.lastDetections;
+    final currentStep = _testController!.currentStep;
     
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.black54,
         borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: detections.isNotEmpty ? Colors.green.withValues(alpha: 0.3) : Colors.white.withValues(alpha: 0.1),
+          width: 1,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Latest Detections:',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-            ),
+          Row(
+            children: [
+              Icon(
+                detections.isNotEmpty ? Icons.visibility : Icons.visibility_off,
+                color: detections.isNotEmpty ? Colors.green : Colors.white70,
+                size: 16,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                'Detections: ${detections.length}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              if (currentStep != null) ...[
+                const Spacer(),
+                Text(
+                  'Target: ${currentStep.targetLabel}',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ],
           ),
           const SizedBox(height: 4),
           if (detections.isEmpty)
             const Text(
-              'No detections',
+              'No objects detected',
               style: TextStyle(color: Colors.white70, fontSize: 12),
             )
           else
-            ...detections.take(3).map((detection) => Text(
-              '${detection.label}: ${(detection.confidence * 100).toStringAsFixed(1)}%',
-              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ...detections.take(3).map((detection) => Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Row(
+                children: [
+                  Icon(
+                    detection.label == currentStep?.targetLabel ? Icons.check_circle : Icons.circle_outlined,
+                    color: detection.label == currentStep?.targetLabel ? Colors.green : Colors.white70,
+                    size: 12,
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      '${detection.label}: ${(detection.confidence * 100).toStringAsFixed(1)}%',
+                      style: TextStyle(
+                        color: detection.label == currentStep?.targetLabel ? Colors.green : Colors.white70,
+                        fontSize: 12,
+                        fontWeight: detection.label == currentStep?.targetLabel ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             )),
         ],
       ),

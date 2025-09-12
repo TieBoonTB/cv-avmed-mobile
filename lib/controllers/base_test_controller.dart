@@ -17,6 +17,9 @@ abstract class BaseTestController {
   
   late BaseDetectionService _detectionService;
   
+  // Cached test steps to preserve state during test execution
+  List<TestStep>? _cachedTestSteps;
+  
   // Test state
   bool _hasTestStarted = false;
   bool _isTestRunning = false;
@@ -89,8 +92,17 @@ abstract class BaseTestController {
   bool get isCompleted => _isCompleted;
   int get currentStepIndex => _currentStepIndex;
   
+  /// Get completion statistics
+  int get completedStepsCount => testSteps.where((step) => step.isDone).length;
+  int get successfulStepsCount => testSteps.where((step) => step.isSuccess).length;
+  double get overallProgress => testSteps.isEmpty ? 0.0 : 
+    testSteps.map((step) => step.progress).reduce((a, b) => a + b) / testSteps.length;
+  
   /// Get all test steps
-  List<TestStep> get testSteps => createTestSteps();
+  List<TestStep> get testSteps {
+    _cachedTestSteps ??= createTestSteps();
+    return _cachedTestSteps!;
+  }
   
   /// Get current active step
   TestStep? get currentStep {
@@ -203,7 +215,11 @@ abstract class BaseTestController {
       detectionTimer?.cancel();
     }
     
-    return stepCompleted; // Return true if target was reached, false if timeout
+    // Consider a step successful if it reached the target OR made significant progress (75%+)
+    const double minimumProgressForSuccess = 0.75;
+    final hasSignificantProgress = step.progress >= minimumProgressForSuccess;
+    
+    return stepCompleted || hasSignificantProgress;
   }
   
   /// Process detection for a single step (with frame skipping protection)
@@ -264,6 +280,10 @@ abstract class BaseTestController {
     _isTestRunning = false;
     _isCompleted = false;
     _currentStepIndex = 0;
+    
+    // Clear cached test steps to force recreation on next access
+    _cachedTestSteps?.clear();
+    _cachedTestSteps = null;
     
     for (var step in testSteps) {
       step.isActive = false;
@@ -331,8 +351,9 @@ class TestStep {
     this.isDone = false,
     this.isSuccess = false,
   }) {
-    // Calculate target frame count based on actual detection rate (10 FPS = 100ms intervals)
-    targetFrameCount = (targetTime * 10).round();
+    // Calculate target frame count based on actual detection rate (2 FPS = 500ms intervals)
+    // This matches the Timer.periodic interval in _runStepWithDetection
+    targetFrameCount = (targetTime * 3).round();
   }
   
   double get progress => targetFrameCount > 0 ? detectedFrameCount / targetFrameCount : 0.0;

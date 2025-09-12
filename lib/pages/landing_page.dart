@@ -3,6 +3,7 @@ import 'guide_page.dart';
 import 'camera_test_page.dart';
 import 'test_launcher_page.dart';
 import 'device_info_page.dart';
+import 'pose_viewer_page.dart';
 
 class LandingPage extends StatelessWidget {
   @override
@@ -166,6 +167,37 @@ class LandingPage extends StatelessWidget {
                 ),
               ),
               
+              const SizedBox(height: 12),
+              // Pose Viewer (Dev)
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => PoseViewerPage()),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white.withValues(alpha: 0.12),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(color: Colors.white.withValues(alpha: 0.3)),
+                    ),
+                    elevation: 4,
+                  ),
+                  child: const Text(
+                    'Pose Viewer (Dev)',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+
               const SizedBox(height: 12),
               
               // Device Info button

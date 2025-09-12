@@ -1,19 +1,17 @@
 import 'dart:typed_data';
 import 'dart:math' as math;
-import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:image/image.dart' as img;
+import 'package:tflite_flutter/tflite_flutter.dart';
 import 'base_model.dart';
 import '../types/detection_types.dart';
 import '../config/model_config.dart';
 import '../utils/tflite_utils.dart';
 
 /// MediaPipe Pose Landmark model for body pose detection
-/// Uses the pose_landmark_full.tflite model for 33 body landmarks
 class MediaPipePoseModel extends BaseModel {
   Interpreter? _interpreter;
   late List<List<int>> _inputShape;
   late List<List<int>> _outputShape;
-  late List<TensorType> _outputTypes;
   bool _isInitialized = false;
 
   @override
@@ -33,34 +31,14 @@ class MediaPipePoseModel extends BaseModel {
       // Get input and output shapes
       _inputShape = _interpreter!.getInputTensors().map((tensor) => tensor.shape).toList();
       _outputShape = _interpreter!.getOutputTensors().map((tensor) => tensor.shape).toList();
-      _outputTypes = _interpreter!.getOutputTensors().map((tensor) => tensor.type).toList();
       
       print('MediaPipe Model loaded successfully');
       print('Input shape: $_inputShape');
       print('Output shape: $_outputShape');
-      print('Output types: $_outputTypes');
       
       // Validate model shapes
       if (_inputShape.isEmpty || _outputShape.isEmpty) {
         throw Exception('Invalid MediaPipe model - missing input or output tensors');
-      }
-      
-      // Test the model with a small inference to check for compatibility issues
-      try {
-        final testInput = _createTestInput();
-        final testOutputs = _createOutputBuffers();
-        
-        // Use runForMultipleInputs for multiple outputs
-        _interpreter!.runForMultipleInputs([testInput], testOutputs);
-        print('MediaPipe model compatibility test passed');
-      } catch (testError) {
-        print('⚠️  MediaPipe model compatibility test failed: $testError');
-        if (testError.toString().contains('are not broadcastable') || 
-            testError.toString().contains('failed precondition')) {
-          print('This is a known issue with the pose_landmark_full.tflite model');
-          print('The model will return mock results to prevent crashes');
-        }
-        // Don't throw - allow initialization to complete with mock functionality
       }
       
       _isInitialized = true;
@@ -72,194 +50,174 @@ class MediaPipePoseModel extends BaseModel {
     }
   }
 
-  /// Initialize model with bytes (for isolate use)
+  /// Initialize the model with bytes (for isolate usage)
   Future<void> initializeWithBytes(Uint8List modelBytes) async {
     try {
-      print('[ISOLATE] Loading MediaPipe Pose model from bytes...');
+      print('Loading MediaPipe Pose model from bytes (${modelBytes.length} bytes)');
       
-      // Create interpreter from bytes using TFLiteUtils
-      _interpreter = TFLiteUtils.createInterpreterFromBytes(modelBytes);
+      // Load the TensorFlow Lite model from bytes
+      _interpreter = await Interpreter.fromBuffer(modelBytes);
       
       // Get input and output shapes
       _inputShape = _interpreter!.getInputTensors().map((tensor) => tensor.shape).toList();
       _outputShape = _interpreter!.getOutputTensors().map((tensor) => tensor.shape).toList();
-      _outputTypes = _interpreter!.getOutputTensors().map((tensor) => tensor.type).toList();
       
-      print('[ISOLATE] MediaPipe Model loaded successfully');
+      print('[ISOLATE] MediaPipe Model loaded successfully from bytes');
       print('[ISOLATE] Input shape: $_inputShape');
       print('[ISOLATE] Output shape: $_outputShape');
-      print('[ISOLATE] Output types: $_outputTypes');
       
       // Validate model shapes
       if (_inputShape.isEmpty || _outputShape.isEmpty) {
         throw Exception('Invalid MediaPipe model - missing input or output tensors');
       }
       
-      // Test the model with a small inference to check for compatibility issues
-      try {
-        final testInput = _createTestInput();
-        final testOutputs = _createOutputBuffers();
-        
-        // Use runForMultipleInputs for multiple outputs
-        _interpreter!.runForMultipleInputs([testInput], testOutputs);
-        print('[ISOLATE] MediaPipe model compatibility test passed');
-      } catch (testError) {
-        print('[ISOLATE] ⚠️  MediaPipe model compatibility test failed: $testError');
-        if (testError.toString().contains('are not broadcastable') || 
-            testError.toString().contains('failed precondition')) {
-          print('[ISOLATE] This is a known issue with the pose_landmark_full.tflite model');
-          print('[ISOLATE] The model will return mock results to prevent crashes');
-        }
-        // Don't throw - allow initialization to complete with mock functionality
-      }
-      
       _isInitialized = true;
-      print('[ISOLATE] MediaPipe Pose Model initialized successfully');
+      print('[ISOLATE] MediaPipe Pose Model initialized successfully from bytes');
     } catch (e) {
-      print('[ISOLATE] Error loading MediaPipe model: $e');
+      print('[ISOLATE] Error loading MediaPipe model from bytes: $e');
       _isInitialized = false;
       rethrow;
     }
   }
 
+
   @override
   Future<List<DetectionResult>> processFrame(Uint8List frameData, int imageHeight, int imageWidth) async {
+    // Use the coordinate-based detection method internally
+    final result = await detectPoseLandmarks(frameData);
+    if (result == null) return [];
+    
+    // Convert landmark coordinates to DetectionResult for compatibility with existing code
+    final landmarks = result['landmarks'] as List<Map<String, dynamic>>? ?? [];
+    final detectionResults = landmarks.map((landmark) {
+      final name = landmark['name'] as String;
+      final x = landmark['x'] as double;       // Normalized coordinates 0-1
+      final y = landmark['y'] as double;
+      final confidence = landmark['confidence'] as double? ?? 0.9;  // Use per-landmark confidence
+      
+      return DetectionResult(
+        label: name,
+        confidence: confidence,
+        box: DetectionBox(
+          x: x,           // Already normalized 0-1
+          y: y,           // Already normalized 0-1  
+          width: 0.01,    // Small point size for landmarks
+          height: 0.01,   // Small point size for landmarks
+        ),
+      );
+    }).toList();
+    
+    print('[ISOLATE] Inference completed in ???ms, found ${detectionResults.length} detections');
+    return detectionResults;
+  }
+
+  /// Detect pose landmarks and return coordinate data like source repository
+  Future<Map<String, dynamic>?> detectPoseLandmarks(Uint8List frameData) async {
     if (!_isInitialized || _interpreter == null) {
       throw StateError('MediaPipe model not initialized. Call initialize() first.');
     }
 
     try {
-      // Decode image from bytes (following YOLOv5 pattern)
-      img.Image? image = img.decodeImage(frameData);
+      // Convert JPEG bytes to Image object (like source repository)
+      final image = img.decodeImage(frameData);
       if (image == null) {
-        print('Failed to decode image for MediaPipe');
-        return [];
+        print('Failed to decode camera image');
+        return null;
       }
 
-      print('Processing frame: ${image.width}x${image.height} -> ${modelInfo.inputWidth}x${modelInfo.inputHeight}');
+      // Resize to model input size (256x256 like source)
+      final resizedImage = img.copyResize(image, width: modelInfo.inputWidth, height:  modelInfo.inputHeight);
 
-      // Resize image to model input size (256x256 for MediaPipe)
-      img.Image resizedImage = img.copyResize(
-        image,
-        width: modelInfo.inputWidth,
-        height: modelInfo.inputHeight,
-        interpolation: img.Interpolation.linear,
-      );
+      // Convert to normalized float tensor like source repository
+      final inputTensor = _imageToNormalizedTensor(resizedImage);
 
-      // Convert image to input tensor format
-      var inputBytes = _imageToByteListFloat32(resizedImage);
-      var input = TFLiteUtils.reshapeInput4D(
-        inputBytes, 
-        modelInfo.inputHeight, 
-        modelInfo.inputWidth, 
-        3
-      );
+      // Prepare output tensors using source repository pattern
+      final outputShapes = _outputShape;
+      print('MediaPipe inference with ${outputShapes.length} output tensors');
 
-      // Create output buffers for multiple outputs
-      final outputBuffers = _createOutputBuffers();
-
-      print('Running MediaPipe inference...');
-      // Run inference with multiple outputs
-      _interpreter!.runForMultipleInputs([input], outputBuffers);
-
-      // Parse the main landmarks output (typically index 0)
-      final landmarksBuffer = outputBuffers[0] as ByteData;
-      final landmarksList = landmarksBuffer.buffer.asFloat32List();
+      // Create output arrays for each tensor (simplified approach based on source)
+      final outputs = <int, Object>{};
       
-      // Check confidence from identity outputs if available
-      double confidence = 1.0;
-      if (outputBuffers.length > 1) {
-        final identityBuffer = outputBuffers[1] as ByteData;
-        final identityList = identityBuffer.buffer.asFloat32List();
-        if (identityList.isNotEmpty) {
-          confidence = identityList[0];
+      // Output 0: Landmarks [1, 195] 
+      final outputLandmarks = List.generate(outputShapes[0][0], (_) => List.filled(outputShapes[0][1], 0.0));
+      outputs[0] = outputLandmarks;
+      
+      // Output 1: Confidence [1, 1] - like source repository outputIdentity1
+      final outputConfidence = List.generate(outputShapes[1][0], (_) => List.filled(outputShapes[1][1], 0.0));
+      outputs[1] = outputConfidence;
+      
+      // Additional outputs (create based on actual shapes)
+      for (int i = 2; i < outputShapes.length; i++) {
+        if (outputShapes[i].length == 4) {
+          // 4D tensor
+          outputs[i] = List.generate(outputShapes[i][0], (_) =>
+            List.generate(outputShapes[i][1], (_) =>
+              List.generate(outputShapes[i][2], (_) =>
+                List.filled(outputShapes[i][3], 0.0)
+              )
+            )
+          );
+        } else if (outputShapes[i].length == 2) {
+          // 2D tensor
+          outputs[i] = List.generate(outputShapes[i][0], (_) => List.filled(outputShapes[i][1], 0.0));
         }
       }
 
-      print('MediaPipe inference completed. Model confidence: $confidence');
+      // Run inference like source repository
+      final inputs = <Object>[inputTensor];
+      _interpreter!.runForMultipleInputs(inputs, outputs);
 
-      // Parse the landmarks with confidence check
-      final results = _parsePoseLandmarks(landmarksList, confidence);
-      print('Detected ${results.length} pose landmarks');
+      // Check confidence like source repository (from output 1)
+      final confidenceValue = outputConfidence[0][0];
+      print('MediaPipe confidence: $confidenceValue');
       
-      return results;
+      // Use threshold like source (0.8)
+      if (confidenceValue < 0.5) {
+        print('MediaPipe confidence too low: $confidenceValue');
+        return null;
+      }
+
+      // Parse landmarks and return coordinate data like source repository
+      return _parseLandmarkCoordinates(outputLandmarks[0], 256, image.width, image.height);
+
     } catch (e) {
       print('Error during MediaPipe inference: $e');
-      
-      // Return standardized error detection result
-      return [DetectionResult.createError('MediaPipe Pose', e.toString())];
+      return null;
     }
   }
 
-  /// Convert image to input tensor format (following YOLOv5 pattern)
-  Float32List _imageToByteListFloat32(img.Image image) {
-    final convertedBytes = Float32List(1 * modelInfo.inputHeight * modelInfo.inputWidth * 3);
-    
-    int pixelIndex = 0;
-    for (int i = 0; i < modelInfo.inputHeight; i++) {
-      for (int j = 0; j < modelInfo.inputWidth; j++) {
-        final pixel = image.getPixel(j, i);
-        // Normalize to [0, 1] range
-        convertedBytes[pixelIndex++] = pixel.r / 255.0;
-        convertedBytes[pixelIndex++] = pixel.g / 255.0;
-        convertedBytes[pixelIndex++] = pixel.b / 255.0;
-      }
-    }
-    
-    return convertedBytes;
-  }
-
-  /// Create test input for model validation
-  List<List<List<List<double>>>> _createTestInput() {
-    final inputHeight = ModelConfigurations.mediapipe.inputHeight;
-    final inputWidth = ModelConfigurations.mediapipe.inputWidth;
-    
-    return List.generate(1, (i) => 
-      List.generate(inputHeight, (j) => 
-        List.generate(inputWidth, (k) => 
-          List.generate(3, (l) => 0.5)
+  /// Convert image to normalized tensor like source repository  
+  List<List<List<List<double>>>> _imageToNormalizedTensor(img.Image image) {
+    final tensor = List.generate(1, (_) =>
+      List.generate(256, (h) =>
+        List.generate(256, (w) =>
+          List.filled(3, 0.0)
         )
       )
     );
-  }
 
-  /// Create output buffers for multiple outputs
-  Map<int, Object> _createOutputBuffers() {
-    final outputs = <int, Object>{};
-    
-    for (int i = 0; i < _outputShape.length; i++) {
-      final shape = _outputShape[i];
-      
-      // Calculate total elements in the tensor
-      int totalElements = 1;
-      for (int dim in shape) {
-        totalElements *= dim;
+    for (int h = 0; h < 256; h++) {
+      for (int w = 0; w < 256; w++) {
+        final pixel = image.getPixel(w, h);
+        // Normalize to 0-1 range like source repository
+        tensor[0][h][w][0] = pixel.r / 255.0;  // R channel
+        tensor[0][h][w][1] = pixel.g / 255.0;  // G channel  
+        tensor[0][h][w][2] = pixel.b / 255.0;  // B channel
       }
-      
-      // Create ByteData buffer with proper size (Float32 = 4 bytes per element)
-      final buffer = ByteData(totalElements * 4);
-      outputs[i] = buffer;
     }
-    
-    return outputs;
+
+    return tensor;
   }
 
-  /// Parse MediaPipe pose landmarks from model output
-  List<DetectionResult> _parsePoseLandmarks(Float32List output, double modelConfidence) {
-    final landmarks = <DetectionResult>[];
+  /// Parse landmarks like source repository and return coordinate data
+  Map<String, dynamic> _parseLandmarkCoordinates(List<double> outputData, int inputSize, int originalWidth, int originalHeight) {
+    print('Parsing landmarks from ${outputData.length} output values');
     
-    // MediaPipe pose model outputs 33 landmarks, each with 5 values (x, y, z, visibility, presence)
+    // Source repository expects 39 landmarks with 5 values each = 195 total
     const int landmarksCount = 33;
     const int valuesPerLandmark = 5;
-    const double minConfidenceThreshold = 0.5; // Minimum confidence threshold from working example
     
-    // Check if model confidence is below threshold (similar to working example)
-    if (modelConfidence < minConfidenceThreshold) {
-      print('MediaPipe model confidence too low: $modelConfidence');
-      return landmarks; // Return empty list
-    }
-    
-    // Landmark names for MediaPipe pose model (33 landmarks)
+    // MediaPipe pose landmark names (based on source repository usage)
     const landmarkNames = [
       'nose', 'left_eye_inner', 'left_eye', 'left_eye_outer', 'right_eye_inner',
       'right_eye', 'right_eye_outer', 'left_ear', 'right_ear', 'mouth_left',
@@ -270,64 +228,92 @@ class MediaPipePoseModel extends BaseModel {
       'right_heel', 'left_foot_index', 'right_foot_index'
     ];
 
-    // Parse landmarks similar to working example
-    for (int i = 0; i < landmarksCount && i * valuesPerLandmark + 4 < output.length; i++) {
+    final landmarks = <Map<String, dynamic>>[];
+    final points = <Map<String, double>>[];
+
+    // Parse landmarks with robust handling for units (pixels vs normalized)
+    // We'll auto-detect whether outputs are in pixels (0..inputSize) or normalized (0..1)
+    double sampleMin = double.infinity;
+    double sampleMax = -double.infinity;
+
+    for (int i = 0; i < landmarksCount; i++) {
       final baseIndex = i * valuesPerLandmark;
+
+      final rawOutX = outputData[baseIndex];
+      final rawOutY = outputData[baseIndex + 1];
+
+      // Track min/max for debugging
+      sampleMin = math.min(sampleMin, math.min(rawOutX, rawOutY));
+      sampleMax = math.max(sampleMax, math.max(rawOutX, rawOutY));
+    }
+
+    // Print a small summary to help diagnose whether outputs are 0..1 or 0..inputSize
+    print('Landmark output sample min=$sampleMin max=$sampleMax (inputSize=$inputSize)');
+
+    for (int i = 0; i < landmarksCount; i++) {
+      final baseIndex = i * valuesPerLandmark;
+
+      // Extract the full tuple for this landmark (may have >2 values)
+      final tuple = List<double>.generate(valuesPerLandmark, (j) => outputData[baseIndex + j]);
+
+      final rawOutX = tuple[0];
+      final rawOutY = tuple[1];
+
+      // If values are > 1.5 we assume they're in pixel units relative to inputSize
+      final normalizedX = (rawOutX > 1.5) ? (rawOutX / inputSize) : rawOutX;
+      final normalizedY = (rawOutY > 1.5) ? (rawOutY / inputSize) : rawOutY;
+
+      // Clamp to 0..1 after normalization
+      final nx = normalizedX.clamp(0.0, 1.0);
+      final ny = normalizedY.clamp(0.0, 1.0);
+
+      // Convert to pixel coordinates for rawX/rawY (map to original image)
+      final rawX = nx * originalWidth;
+      final rawY = ny * originalHeight;
+
+      // Get landmark name, fallback to index if not available
+      final landmarkName = i < landmarkNames.length ? landmarkNames[i] : 'landmark_$i';
+
+      // Extract potential confidence values (indices 3,4 might be visibility/presence)
+      final visibility = tuple.length > 3 ? tuple[3] : 10.0;
+      final presence = tuple.length > 4 ? tuple[4] : 10.0;
       
-      final x = output[baseIndex];     // x coordinate
-      final y = output[baseIndex + 1]; // y coordinate
-      // Note: z coordinate (depth) is available but not used in 2D analysis
-      final visibility = output[baseIndex + 3]; // visibility score
-      final presence = output[baseIndex + 4];   // presence score
+      // Use the higher of the two as landmark confidence
+      final landmarkConfidence = math.max(visibility, presence);
       
-      // Calculate confidence similar to working example
-      final confidence = (visibility + presence) / 2.0;
-      
-      if (confidence > 0.3) { // Minimum confidence threshold
-        landmarks.add(DetectionResult(
-          label: landmarkNames[i],
-          confidence: confidence,
-          box: DetectionBox(
-            x: x,
-            y: y,
-            width: 0.01, // Point landmarks have minimal width/height
-            height: 0.01,
-          ),
-        ));
+      // Apply per-landmark confidence threshold (adjust this value as needed)
+      const double landmarkThreshold = 5.0; // arbitrary number
+
+      // Only include landmarks that pass the per-landmark confidence threshold
+      if (landmarkConfidence >= landmarkThreshold) {
+          // Debug print the full tuple and computed coords
+          print('LM[$i] $landmarkName tuple=${tuple.map((v) => v.toStringAsFixed(4)).toList()} confidence=${landmarkConfidence.toStringAsFixed(2)} normalized=(${nx.toStringAsFixed(4)}, ${ny.toStringAsFixed(4)})');
+
+        // Store with corrected coordinate system
+        landmarks.add({
+          'name': landmarkName,
+          'x': nx,        // Normalized 0-1
+          'y': ny,        // Normalized 0-1
+          'rawX': rawX,   // Pixel coordinates for drawing
+          'rawY': rawY,
+        });
+
+        // Also provide pixel coordinates for drawing (like source repository)
+        points.add({
+          'x': rawX,
+          'y': rawY,
+        });
       }
     }
-
-    print('MediaPipe parsed ${landmarks.length} landmarks with model confidence: $modelConfidence');
-    return landmarks;
-  }
-
-  /// Get specific landmark by name
-  DetectionResult? getLandmark(List<DetectionResult> landmarks, String landmarkName) {
-    try {
-      return landmarks.firstWhere((landmark) => landmark.label == landmarkName);
-    } catch (e) {
-      return null;
-    }
-  }
-
-  /// Calculate angle between three landmarks (useful for joint angles)
-  double? calculateAngle(DetectionResult? point1, DetectionResult? point2, DetectionResult? point3) {
-    if (point1 == null || point2 == null || point3 == null) return null;
-
-    // Vector from point2 to point1
-    final dx1 = point1.box.x - point2.box.x;
-    final dy1 = point1.box.y - point2.box.y;
-
-    // Vector from point2 to point3
-    final dx2 = point3.box.x - point2.box.x;
-    final dy2 = point3.box.y - point2.box.y;
-
-    // Calculate angle using dot product
-    final dot = dx1 * dx2 + dy1 * dy2;
-    final det = dx1 * dy2 - dy1 * dx2;
-    final angle = (math.atan2(det, dot) * 180 / math.pi).abs();
-
-    return angle;
+    
+    print('MediaPipe detected ${landmarks.length} landmarks');
+    
+    // Return data like source repository
+    return {
+      'landmarks': landmarks,
+      'points': points,           // For drawing skeleton
+      'confidence': 0.9,         // Overall confidence
+    };
   }
 
   @override
