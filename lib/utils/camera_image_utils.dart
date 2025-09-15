@@ -2,6 +2,8 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
+import 'dart:async';
+import 'dart:ui' as ui;
 
 class CameraImageUtils {
   /// Convert CameraImage to Image object for ML processing
@@ -10,7 +12,7 @@ class CameraImageUtils {
     try {
       // For YUV420 format (most common on mobile cameras)
       if (cameraImage.format.group == ImageFormatGroup.yuv420) {
-        return _convertYUV420ToImage(cameraImage);
+        return convertYUV420ToImage(cameraImage);
       }
       // For other formats, try to decode directly
       else {
@@ -24,41 +26,41 @@ class CameraImageUtils {
   }
 
   /// Convert YUV420 CameraImage to RGB Image object
-  static img.Image _convertYUV420ToImage(CameraImage cameraImage) {
+  static img.Image convertYUV420ToImage(CameraImage cameraImage) {
     final int width = cameraImage.width;
     final int height = cameraImage.height;
-    
+
     final yPlane = cameraImage.planes[0];
     final uPlane = cameraImage.planes[1];
     final vPlane = cameraImage.planes[2];
-    
+
     // Create a new RGB image
     final image = img.Image(width: width, height: height);
-    
+
     for (int h = 0; h < height; h++) {
       for (int w = 0; w < width; w++) {
         final int yIndex = h * yPlane.bytesPerRow + w;
         final int uvIndex = (h ~/ 2) * uPlane.bytesPerRow + (w ~/ 2) * uPlane.bytesPerPixel!;
-        
+
         if (yIndex < yPlane.bytes.length && 
             uvIndex < uPlane.bytes.length && 
             uvIndex < vPlane.bytes.length) {
-          
+
           final int y = yPlane.bytes[yIndex];
           final int u = uPlane.bytes[uvIndex];
           final int v = vPlane.bytes[uvIndex];
-          
+
           // YUV to RGB conversion
           final int r = (y + 1.370705 * (v - 128)).clamp(0, 255).toInt();
           final int g = (y - 0.698001 * (v - 128) - 0.337633 * (u - 128)).clamp(0, 255).toInt();
           final int b = (y + 1.732446 * (u - 128)).clamp(0, 255).toInt();
-          
+
           // Set pixel in image
           image.setPixelRgb(w, h, r, g, b);
         }
       }
     }
-    
+
     return image;
   }
 
@@ -136,6 +138,34 @@ class CameraImageUtils {
       );
     } catch (e) {
       debugPrint('Error converting camera image to widget: $e');
+      return null;
+    }
+  }
+
+  /// Convert CameraImage to ui.Image for drawing overlays
+  static Future<ui.Image?> cameraImageToUiImage(CameraImage cameraImage, {bool isFrontCamera = false}) async {
+    try {
+      final imgImage = convertCameraImageToImage(cameraImage);
+      if (imgImage == null) return null;
+
+      // Apply orientation correction as in convertCameraImageToBytes
+      img.Image processedImage;
+      if (isFrontCamera) {
+        final rotatedImage = img.copyRotate(imgImage, angle: 270);
+        processedImage = img.flipHorizontal(rotatedImage);
+      } else {
+        processedImage = img.copyRotate(imgImage, angle: 90);
+      }
+
+
+      // Encode to PNG and decode via codec for robustness (handles pixel formats/strides)
+      final pngBytes = img.encodePng(processedImage);
+
+      final codec = await ui.instantiateImageCodec(Uint8List.fromList(pngBytes));
+      final frame = await codec.getNextFrame();
+      return frame.image;
+    } catch (e, st) {
+      debugPrint('Error converting CameraImage to ui.Image: $e\n$st');
       return null;
     }
   }

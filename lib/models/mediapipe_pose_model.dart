@@ -172,7 +172,7 @@ class MediaPipePoseModel extends BaseModel {
       print('MediaPipe confidence: $confidenceValue');
       
       // Use threshold like source (0.8)
-      if (confidenceValue < 0.5) {
+      if (confidenceValue < 0.8) {
         print('MediaPipe confidence too low: $confidenceValue');
         return null;
       }
@@ -274,20 +274,17 @@ class MediaPipePoseModel extends BaseModel {
       // Get landmark name, fallback to index if not available
       final landmarkName = i < landmarkNames.length ? landmarkNames[i] : 'landmark_$i';
 
-      // Extract potential confidence values (indices 3,4 might be visibility/presence)
-      final visibility = tuple.length > 3 ? tuple[3] : 10.0;
-      final presence = tuple.length > 4 ? tuple[4] : 10.0;
-      
-      // Use the higher of the two as landmark confidence
-      final landmarkConfidence = math.max(visibility, presence);
+      // This model doesn't seem to have landmark confidence
+      final landmarkConfidence = 7;
       
       // Apply per-landmark confidence threshold (adjust this value as needed)
       const double landmarkThreshold = 5.0; // arbitrary number
 
+      // Debug print the full tuple and computed coords
+      // print('LM[$i] $landmarkName tuple=${tuple.map((v) => v.toStringAsFixed(4)).toList()} visibility=${visibility.toStringAsFixed(4)} presence=${presence.toStringAsFixed(4)} normalized=(${nx.toStringAsFixed(4)}, ${ny.toStringAsFixed(4)})');
+
       // Only include landmarks that pass the per-landmark confidence threshold
       if (landmarkConfidence >= landmarkThreshold) {
-          // Debug print the full tuple and computed coords
-          print('LM[$i] $landmarkName tuple=${tuple.map((v) => v.toStringAsFixed(4)).toList()} confidence=${landmarkConfidence.toStringAsFixed(2)} normalized=(${nx.toStringAsFixed(4)}, ${ny.toStringAsFixed(4)})');
 
         // Store with corrected coordinate system
         landmarks.add({

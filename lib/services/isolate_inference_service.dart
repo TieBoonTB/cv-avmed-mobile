@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:isolate';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
+import 'package:namer_app/config/model_config.dart';
 import '../types/detection_types.dart';
 import '../utils/tflite_utils.dart';
 import 'isolate_worker.dart';
@@ -163,18 +164,18 @@ class IsolateInferenceService {
     switch (modelType.toLowerCase()) {
       case 'yolov5':
       case 'yolov5s':
-        final yoloBytes = await TFLiteUtils.loadModelBytesFromAsset('assets/models/yolov5s_f16.tflite');
+        final yoloBytes = await TFLiteUtils.loadModelBytesFromAsset(ModelConfigurations.yolov5s.modelPath);
         return {'main': yoloBytes};
         
         case 'avmed':
-        final mainBytes = await TFLiteUtils.loadModelBytesFromAsset('assets/models/av_med_16-12-24_f16.tflite');
+        final mainBytes = await TFLiteUtils.loadModelBytesFromAsset(ModelConfigurations.avmed.modelPath);
         final faceBytes = await TFLiteUtils.loadModelBytesFromAsset('assets/models/face-detection_f16.tflite');
         return {'main': mainBytes, 'face': faceBytes};
         
       case 'pose':
       case 'mediapipe':
       case 'sppb':
-        final poseBytes = await TFLiteUtils.loadModelBytesFromAsset('assets/models/pose_landmark_full.tflite');
+        final poseBytes = await TFLiteUtils.loadModelBytesFromAsset(ModelConfigurations.mediapipe.modelPath);
         return {'main': poseBytes};      default:
         throw Exception('Unknown model type: $modelType');
     }

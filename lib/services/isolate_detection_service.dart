@@ -43,6 +43,7 @@ class IsolateDetectionService extends BaseDetectionService {
     int imageWidth,
   ) async {
     if (!isInitialized || _isolateService == null || _isDisposing) {
+      print("[ISOLATE] Isolate Service not initialized.");
       return [];
     }
 

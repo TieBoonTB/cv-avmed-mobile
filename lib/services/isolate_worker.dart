@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'dart:isolate';
 import 'dart:typed_data';
+
 import '../models/yolov5s_model.dart';
 import '../models/avmed_model.dart';
-import '../models/mediapipe_pose_model.dart';
+import '../models/mediapipe_pose_qualcomm_model.dart';
 import '../models/base_model.dart';
 import '../types/detection_types.dart';
 import 'isolate_inference_service.dart';
@@ -84,9 +85,9 @@ class InferenceIsolateWorker {
         case 'mediapipe':
         case 'pose':
         case 'sppb':
-          _model = MediaPipePoseModel();
-          // Initialize with model bytes
-          await (_model as MediaPipePoseModel).initializeWithBytes(modelBytesMap['main']!);
+          _model = MediaPipePoseQualcommModel();
+          // Initialize with model bytesW
+          await (_model as MediaPipePoseQualcommModel).initializeWithBytes(modelBytesMap['main']!);
           
         default:
           throw Exception('Unknown model type: $modelType');

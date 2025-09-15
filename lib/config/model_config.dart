@@ -94,10 +94,11 @@ class ModelConfigurations {
       'nose', 'left_eye', 'right_eye', 'left_ear', 'right_ear',
       'left_wrist', 'right_wrist', 'left_elbow', 'right_elbow'
     ],
-    defaultConfidenceThreshold: 0.5,
+    defaultConfidenceThreshold: 0.3,
     inputWidth: 256,
     inputHeight: 256,
-    modelPath: 'assets/models/pose_landmark_full.tflite',
+    // modelPath: 'assets/models/pose_landmark_full.tflite',
+    modelPath: 'assets/models/pose_landmark_qualcomm.tflite',
   );
 
   static const ModelInfo sppbAnalysis = ModelInfo(

@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
-import '../services/sppb_detection_services.dart';
+import '../services/isolate_detection_service.dart';
 import '../types/detection_types.dart';
 import 'dart:ui' as ui;
+import '../widgets/pose_qualcomm_painter.dart';
+import 'dart:async';
+import 'package:camera/camera.dart';
+import '../controllers/camera_feed_controller.dart';
+import 'package:get/get.dart';
+import '../utils/camera_image_utils.dart';
 
 /// Simple page to run MediaPipe pose detection on an image asset and draw landmarks
 class PoseViewerPage extends StatefulWidget {
@@ -11,7 +17,7 @@ class PoseViewerPage extends StatefulWidget {
 }
 
 class PoseViewerPageState extends State<PoseViewerPage> {
-  final PoseDetectionService _service = PoseDetectionService();
+  final IsolatePoseDetectionService _service = IsolatePoseDetectionService();
   ui.Image? _image;
   List<DetectionResult> _landmarks = [];
   String? _selectedAsset;
@@ -20,6 +26,11 @@ class PoseViewerPageState extends State<PoseViewerPage> {
   double _labelScale = 1.0;
   final TransformationController _transformationController = TransformationController();
   double _currentScale = 1.0;
+  bool _showCameraFeed = false;
+  CameraController? _cameraController;
+  late final CameraFeedController _cameraFeedController;
+  Timer? _inferenceTimer;
+  bool _isProcessing = false;
 
   void _zoomBy(double factor) {
     final matrix = _transformationController.value;
@@ -48,7 +59,11 @@ class PoseViewerPageState extends State<PoseViewerPage> {
   @override
   void initState() {
     super.initState();
+    // Default to the first asset so the Run button is enabled on open
+    _selectedAsset = _assetOptions.first;
     _initService();
+    _cameraFeedController = Get.put(CameraFeedController());
+    _cameraFeedController.initializeCamera();
   }
 
   Future<void> _initService() async {
@@ -83,8 +98,42 @@ class PoseViewerPageState extends State<PoseViewerPage> {
     }
   }
 
+  void _startInferenceTimer() {
+    if (_inferenceTimer != null && _inferenceTimer!.isActive) return;
+    _inferenceTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) async {
+      if (!_showCameraFeed) return;
+      if (_isProcessing) return; // skip if already processing
+
+      final lastImage = _cameraFeedController.currentImage;
+      if (lastImage == null) return;
+
+      _isProcessing = true;
+      try {
+        final bytes = CameraImageUtils.convertCameraImageToBytes(lastImage, isFrontCamera: _cameraFeedController.isFrontCamera);
+        if (bytes.isEmpty) return;
+
+        final results = await _service.processFrame(bytes, lastImage.height, lastImage.width);
+        setState(() {
+          _landmarks = results;
+        });
+      } catch (e) {
+        debugPrint('Inference error: $e');
+      } finally {
+        _isProcessing = false;
+      }
+    });
+  }
+
+  void _stopInferenceTimer() {
+    _inferenceTimer?.cancel();
+    _inferenceTimer = null;
+    _isProcessing = false;
+  }
+
   @override
   void dispose() {
+    _stopInferenceTimer();
+    _cameraController?.dispose();
     _service.dispose();
     super.dispose();
   }
@@ -94,10 +143,74 @@ class PoseViewerPageState extends State<PoseViewerPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Pose Viewer'),
+        actions: [
+          IconButton(
+            icon: Icon(_showCameraFeed ? Icons.image : Icons.camera_alt),
+            onPressed: () async {
+              final willShow = !_showCameraFeed;
+              setState(() => _showCameraFeed = willShow);
+
+              if (willShow) {
+                // Ensure camera is initialized (initializeCamera is idempotent)
+                await _cameraFeedController.initializeCamera();
+                _startInferenceTimer();
+              } else {
+                // Stop updates so detections aren't overwritten while not viewing camera
+                _stopInferenceTimer();
+              }
+            },
+          ),
+          // Camera switch button
+          IconButton(
+            icon: Icon(_cameraFeedController.isFrontCamera ? Icons.camera_front : Icons.camera_rear),
+            onPressed: () async {
+              // If camera view not visible, just toggle the controller state so next open uses the other camera
+              if (!_showCameraFeed) {
+                await _cameraFeedController.switchCamera();
+                return;
+              }
+
+              // If camera view is visible, stop updates, switch camera, then restart
+              _stopInferenceTimer();
+              await _cameraFeedController.switchCamera();
+              // Small delay to allow camera controller to initialize
+              await Future.delayed(const Duration(milliseconds: 300));
+              _startInferenceTimer();
+            },
+          ),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(12.0),
-        child: Column(
+        child: _showCameraFeed ? _buildCameraFeedView() : _buildPoseViewerWithImage(),
+      ),
+    );
+  }
+
+  Widget _buildCameraFeedView() {
+    // If camera controller from CameraFeedController is available, show CameraPreview
+    final camCtrl = _cameraFeedController.cameraController;
+    if (camCtrl == null || !camCtrl.value.isInitialized) {
+      return const Center(child: Text('Camera not ready'));
+    }
+
+    return Stack(
+      children: [
+        CameraPreview(camCtrl), // Live camera feed (not the saved image)
+        // Overlay landmarks using Qualcomm painter
+        Positioned.fill(
+          child: IgnorePointer(
+            child: CustomPaint(
+              painter: PoseQualcommPainter(landmarks: _landmarks, showLabels: false),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Column _buildPoseViewerWithImage() {
+    return Column(
           children: [
             Row(
               children: [
@@ -172,9 +285,42 @@ class PoseViewerPageState extends State<PoseViewerPage> {
                                     _transformationController.value = Matrix4.identity();
                                     setState(() => _currentScale = 1.0);
                                   },
-                                  child: CustomPaint(
-                                    painter: _PosePainter(image: _image!, landmarks: _landmarks, showLabels: _showLabels, labelScale: _labelScale),
-                                  ),
+                                  child: LayoutBuilder(builder: (context, constraints) {
+                                    // Compute image draw area matching FittedBox(BoxFit.contain)
+                                    final imgW = _image!.width.toDouble();
+                                    final imgH = _image!.height.toDouble();
+                                    final scale = (constraints.maxWidth / imgW).clamp(0.0, double.infinity);
+                                    final scaleH = (constraints.maxHeight / imgH).clamp(0.0, double.infinity);
+                                    final fitScale = scale < scaleH ? scale : scaleH;
+                                    final drawW = imgW * fitScale;
+                                    final drawH = imgH * fitScale;
+                                    final dx = (constraints.maxWidth - drawW) / 2;
+                                    final dy = (constraints.maxHeight - drawH) / 2;
+
+                                    // Compute pixel offsets from normalized landmarks
+                                    List<Offset> points = [];
+                                    if (_landmarks.isNotEmpty) {
+                                      points = _landmarks.map((lm) => Offset(dx + lm.box.x * imgW * fitScale, dy + lm.box.y * imgH * fitScale)).toList();
+                                    }
+
+                                    return Stack(children: [
+                                      // Draw the image at its pixel size so painter coords align
+                                      Positioned.fill(
+                                        child: FittedBox(
+                                          fit: BoxFit.contain,
+                                          child: SizedBox(width: imgW, height: imgH, child: RawImage(image: _image)),
+                                        ),
+                                      ),
+                                      // Overlay new reference painter
+                                      Positioned.fill(
+                                        child: IgnorePointer(
+                                          child: CustomPaint(
+                                            painter: PoseQualcommPainter(landmarks: _landmarks, showLabels: _showLabels),
+                                          ),
+                                        ),
+                                      ),
+                                    ]);
+                                  }),
                                 ),
                               ),
                             ),
@@ -224,64 +370,6 @@ class PoseViewerPageState extends State<PoseViewerPage> {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PosePainter extends CustomPainter {
-  final ui.Image image;
-  final List<DetectionResult> landmarks;
-  final bool showLabels;
-  final double labelScale;
-
-  _PosePainter({required this.image, required this.landmarks, this.showLabels = true, this.labelScale = 1.0});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Draw the image
-    final paint = Paint();
-    canvas.drawImage(image, Offset.zero, paint);
-
-  // Draw landmarks as circles
-  final circlePaint = Paint()..color = Colors.red.withValues(alpha: 0.95);
-  final textPainter = TextPainter(textDirection: TextDirection.ltr);
-
-  // Scale sizes based on image size and labelScale
-  final base = (image.width + image.height) / 2.0;
-  final baseFont = (base / 600.0) * 12.0; // roughly 12 at mid sizes
-  final double fontSize = (baseFont * labelScale).clamp(8.0, 200);
-  final circleRadius = ((image.width + image.height) * 0.0025);
-
-    for (final lm in landmarks) {
-      final box = lm.box;
-      final x = box.x * image.width;
-      final y = box.y * image.height;
-      canvas.drawCircle(Offset(x, y), circleRadius, circlePaint);
-
-      if (showLabels) {
-        final label = lm.label;
-        final tp = TextSpan(text: label, style: TextStyle(color: Colors.white, fontSize: fontSize));
-        textPainter.text = tp;
-        textPainter.layout();
-
-        // Draw small semi-opaque background rect for readability
-        final padding = 4.0;
-        final rect = Rect.fromLTWH(
-          x + 6,
-          y - textPainter.height / 2 - padding / 2,
-          textPainter.width + padding,
-          textPainter.height + padding,
         );
-        final bgPaint = Paint()..color = Colors.black.withValues(alpha: 0.55);
-        canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(4)), bgPaint);
-
-        textPainter.paint(canvas, Offset(x + 8, y - textPainter.height / 2));
-      }
-    }
   }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
