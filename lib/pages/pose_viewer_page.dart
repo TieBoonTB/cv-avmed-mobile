@@ -4,6 +4,7 @@ import '../services/isolate_detection_service.dart';
 import '../types/detection_types.dart';
 import 'dart:ui' as ui;
 import '../widgets/pose_qualcomm_painter.dart';
+import '../widgets/pose_mediapipe_painter.dart';
 import 'dart:async';
 import 'package:camera/camera.dart';
 import '../controllers/camera_feed_controller.dart';
@@ -17,7 +18,7 @@ class PoseViewerPage extends StatefulWidget {
 }
 
 class PoseViewerPageState extends State<PoseViewerPage> {
-  final IsolatePoseDetectionService _service = IsolatePoseDetectionService();
+  IsolateDetectionService? _service;
   ui.Image? _image;
   List<DetectionResult> _landmarks = [];
   String? _selectedAsset;
@@ -31,6 +32,10 @@ class PoseViewerPageState extends State<PoseViewerPage> {
   late final CameraFeedController _cameraFeedController;
   Timer? _inferenceTimer;
   bool _isProcessing = false;
+  
+  // Model type selection
+  String _selectedModelType = 'Qualcomm';
+  final List<String> _modelTypes = ['Qualcomm', 'MediaPipe'];
 
   void _zoomBy(double factor) {
     final matrix = _transformationController.value;
@@ -68,10 +73,46 @@ class PoseViewerPageState extends State<PoseViewerPage> {
 
   Future<void> _initService() async {
     try {
-      await _service.initialize();
+      // Dispose existing service if any
+      _service?.dispose();
+      
+      // Create the appropriate service based on selected model type
+      if (_selectedModelType == 'MediaPipe') {
+        _service = IsolateMediaPipePoseDetectionService();
+      } else {
+        _service = IsolateQualcommPoseDetectionService();
+      }
+      
+      await _service!.initialize();
     } catch (e) {
       print('Failed to init pose service: $e');
     }
+  }
+
+  /// Get the appropriate painter based on selected model type
+  CustomPainter _getPainter({required bool showLabels}) {
+    if (_selectedModelType == 'MediaPipe') {
+      return MediaPipePainter(landmarks: _landmarks, showLabels: showLabels);
+    } else {
+      return QualcommPainter(landmarks: _landmarks, showLabels: showLabels);
+    }
+  }
+
+  /// Handle model type change
+  Future<void> _onModelTypeChanged(String? newType) async {
+    if (newType == null || newType == _selectedModelType) return;
+    
+    setState(() {
+      _selectedModelType = newType;
+      _loading = true;
+    });
+    
+    // Reinitialize service with new model type
+    await _initService();
+    
+    setState(() {
+      _loading = false;
+    });
   }
 
   Future<void> _loadAssetImage(String assetPath) async {
@@ -86,7 +127,7 @@ class PoseViewerPageState extends State<PoseViewerPage> {
       _image = frame.image;
 
       // Run pose detection using service (expects JPEG/PNG bytes)
-      final results = await _service.processFrame(data, _image!.height, _image!.width);
+      final results = await _service?.processFrame(data, _image!.height, _image!.width) ?? [];
       setState(() {
         _landmarks = results;
         _selectedAsset = assetPath;
@@ -112,7 +153,7 @@ class PoseViewerPageState extends State<PoseViewerPage> {
         final bytes = CameraImageUtils.convertCameraImageToBytes(lastImage, isFrontCamera: _cameraFeedController.isFrontCamera);
         if (bytes.isEmpty) return;
 
-        final results = await _service.processFrame(bytes, lastImage.height, lastImage.width);
+        final results = await _service?.processFrame(bytes, lastImage.height, lastImage.width) ?? [];
         setState(() {
           _landmarks = results;
         });
@@ -134,7 +175,7 @@ class PoseViewerPageState extends State<PoseViewerPage> {
   void dispose() {
     _stopInferenceTimer();
     _cameraController?.dispose();
-    _service.dispose();
+    _service?.dispose();
     super.dispose();
   }
 
@@ -197,11 +238,11 @@ class PoseViewerPageState extends State<PoseViewerPage> {
     return Stack(
       children: [
         CameraPreview(camCtrl), // Live camera feed (not the saved image)
-        // Overlay landmarks using Qualcomm painter
+        // Overlay landmarks using the appropriate painter
         Positioned.fill(
           child: IgnorePointer(
             child: CustomPaint(
-              painter: PoseQualcommPainter(landmarks: _landmarks, showLabels: false),
+              painter: _getPainter(showLabels: false),
             ),
           ),
         ),
@@ -215,11 +256,22 @@ class PoseViewerPageState extends State<PoseViewerPage> {
             Row(
               children: [
                 Expanded(
+                  flex: 2,
                   child: DropdownButtonFormField<String>(
-                    initialValue: _selectedAsset ?? _assetOptions.first,
-                    items: _assetOptions.map((a) => DropdownMenuItem(value: a, child: Text(a))).toList(),
+                    value: _selectedModelType,
+                    items: _modelTypes.map((type) => DropdownMenuItem(value: type, child: Text(type))).toList(),
+                    onChanged: _onModelTypeChanged,
+                    decoration: const InputDecoration(labelText: 'Model Type'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 3,
+                  child: DropdownButtonFormField<String>(
+                    value: _selectedAsset,
+                    items: _assetOptions.map((a) => DropdownMenuItem(value: a, child: Text(a.split('/').last))).toList(),
                     onChanged: (v) => setState(() => _selectedAsset = v),
-                    decoration: const InputDecoration(labelText: 'Choose asset image'),
+                    decoration: const InputDecoration(labelText: 'Test Image'),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -286,22 +338,9 @@ class PoseViewerPageState extends State<PoseViewerPage> {
                                     setState(() => _currentScale = 1.0);
                                   },
                                   child: LayoutBuilder(builder: (context, constraints) {
-                                    // Compute image draw area matching FittedBox(BoxFit.contain)
+                                    // Get image dimensions for RawImage widget
                                     final imgW = _image!.width.toDouble();
                                     final imgH = _image!.height.toDouble();
-                                    final scale = (constraints.maxWidth / imgW).clamp(0.0, double.infinity);
-                                    final scaleH = (constraints.maxHeight / imgH).clamp(0.0, double.infinity);
-                                    final fitScale = scale < scaleH ? scale : scaleH;
-                                    final drawW = imgW * fitScale;
-                                    final drawH = imgH * fitScale;
-                                    final dx = (constraints.maxWidth - drawW) / 2;
-                                    final dy = (constraints.maxHeight - drawH) / 2;
-
-                                    // Compute pixel offsets from normalized landmarks
-                                    List<Offset> points = [];
-                                    if (_landmarks.isNotEmpty) {
-                                      points = _landmarks.map((lm) => Offset(dx + lm.box.x * imgW * fitScale, dy + lm.box.y * imgH * fitScale)).toList();
-                                    }
 
                                     return Stack(children: [
                                       // Draw the image at its pixel size so painter coords align
@@ -311,11 +350,11 @@ class PoseViewerPageState extends State<PoseViewerPage> {
                                           child: SizedBox(width: imgW, height: imgH, child: RawImage(image: _image)),
                                         ),
                                       ),
-                                      // Overlay new reference painter
+                                      // Overlay pose painter
                                       Positioned.fill(
                                         child: IgnorePointer(
                                           child: CustomPaint(
-                                            painter: PoseQualcommPainter(landmarks: _landmarks, showLabels: _showLabels),
+                                            painter: _getPainter(showLabels: _showLabels),
                                           ),
                                         ),
                                       ),

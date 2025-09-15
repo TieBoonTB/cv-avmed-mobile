@@ -49,8 +49,8 @@ class IsolateMessage {
 /// Isolate-based inference service that runs ML models in background
 class IsolateInferenceService {
   Isolate? _isolate;
-  late SendPort _sendPort;
-  late ReceivePort _receivePort;
+  SendPort? _sendPort;
+  ReceivePort? _receivePort;
   StreamSubscription? _permanentSubscription;
   bool _isInitialized = false;
   bool _isInitializing = false;
@@ -75,13 +75,13 @@ class IsolateInferenceService {
       // Load model bytes in main thread (can access assets)
       final modelBytes = await _loadModelBytes(modelType);
       
-      // Create receive port for main isolate
-      _receivePort = ReceivePort();
+  // Create receive port for main isolate
+  _receivePort = ReceivePort();
       
       // Spawn the isolate
       _isolate = await Isolate.spawn(
         _isolateEntryPoint,
-        _receivePort.sendPort,
+        _receivePort!.sendPort,
         debugName: 'InferenceIsolate',
       );
       
@@ -91,13 +91,13 @@ class IsolateInferenceService {
       final completer = Completer<void>();
       bool isInitialized = false;
       
-      _permanentSubscription = _receivePort.listen((message) {
+  _permanentSubscription = _receivePort!.listen((message) {
         try {
           final isolateMessage = IsolateMessage.fromMap(Map<String, dynamic>.from(message));
           
-          if (!isInitialized && isolateMessage.type == IsolateMessageType.ready) {
+            if (!isInitialized && isolateMessage.type == IsolateMessageType.ready) {
             print('Isolate is ready');
-            _sendPort = isolateMessage.data['sendPort'];
+            _sendPort = isolateMessage.data['sendPort'] as SendPort?;
             isInitialized = true;
             if (!completer.isCompleted) {
               completer.complete();
@@ -120,12 +120,12 @@ class IsolateInferenceService {
         onTimeout: () => throw TimeoutException('Isolate initialization timeout'),
       );
       
-      // Send initialization message with model bytes
+  // Send initialization message with model bytes
       final initRequestId = _generateRequestId();
       
       _pendingRequests[initRequestId] = Completer<List<DetectionResult>>();
       
-      _sendPort.send(IsolateMessage(
+      _sendPort?.send(IsolateMessage(
         type: IsolateMessageType.initialize,
         data: {
           'modelType': modelType,
@@ -174,9 +174,17 @@ class IsolateInferenceService {
         
       case 'pose':
       case 'mediapipe':
-      case 'sppb':
         final poseBytes = await TFLiteUtils.loadModelBytesFromAsset(ModelConfigurations.mediapipe.modelPath);
-        return {'main': poseBytes};      default:
+        return {'main': poseBytes};
+      case 'qualcomm':
+      case 'pose-qualcomm':
+      case 'qualcommpose':
+        final qBytes = await TFLiteUtils.loadModelBytesFromAsset(ModelConfigurations.qualcommPose.modelPath);
+        return {'main': qBytes};
+      case 'sppb':
+        final poseBytes2 = await TFLiteUtils.loadModelBytesFromAsset(ModelConfigurations.mediapipe.modelPath);
+        return {'main': poseBytes2};
+      default:
         throw Exception('Unknown model type: $modelType');
     }
   }
@@ -195,9 +203,12 @@ class IsolateInferenceService {
     final completer = Completer<List<DetectionResult>>();
     _pendingRequests[requestId] = completer;
 
-    try {
+      try {
       // Send frame processing request
-      _sendPort.send(IsolateMessage(
+      if (_sendPort == null) {
+        throw Exception('Isolate send port is not available');
+      }
+      _sendPort!.send(IsolateMessage(
         type: IsolateMessageType.processFrame,
         data: {
           'frameData': frameData,
@@ -289,7 +300,7 @@ class IsolateInferenceService {
       try {
         // Send dispose message if isolate is still alive
         if (_isInitialized) {
-          _sendPort.send(IsolateMessage(
+          _sendPort?.send(IsolateMessage(
             type: IsolateMessageType.dispose,
             data: {},
           ).toMap());
@@ -308,7 +319,11 @@ class IsolateInferenceService {
     _permanentSubscription = null;
     
     // Close receive port
-    _receivePort.close();
+    try {
+      _receivePort?.close();
+    } catch (e) {
+      print('Error closing receive port: $e');
+    }
     
     // Complete any pending requests with empty results
     for (final completer in _pendingRequests.values) {

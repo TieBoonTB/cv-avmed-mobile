@@ -26,6 +26,7 @@ enum ModelType {
   avmed,
   yolov8n,
   mediapipe,
+  qualcommPose,
   sppbAnalysis,
 }
 
@@ -89,15 +90,33 @@ class ModelConfigurations {
     name: 'MediaPipe Pose Landmark Full',
     version: '1.0.0',
     supportedLabels: [
-      'left_hip', 'right_hip', 'left_knee', 'right_knee',
-      'left_shoulder', 'right_shoulder', 'left_ankle', 'right_ankle',
-      'nose', 'left_eye', 'right_eye', 'left_ear', 'right_ear',
-      'left_wrist', 'right_wrist', 'left_elbow', 'right_elbow'
+      'nose', 'left_eye_inner', 'left_eye', 'left_eye_outer', 'right_eye_inner', 'right_eye',
+      'right_eye_outer', 'left_ear', 'right_ear', 'mouth_left', 'mouth_right',
+      'left_shoulder', 'right_shoulder', 'left_elbow', 'right_elbow', 'left_wrist', 'right_wrist',
+      'left_pinky', 'right_pinky', 'left_index', 'right_index', 'left_thumb', 'right_thumb',
+      'left_hip', 'right_hip', 'left_knee', 'right_knee', 'left_ankle', 'right_ankle',
+      'left_heel', 'right_heel', 'left_foot_index', 'right_foot_index'
     ],
     defaultConfidenceThreshold: 0.3,
     inputWidth: 256,
     inputHeight: 256,
-    // modelPath: 'assets/models/pose_landmark_full.tflite',
+    modelPath: 'assets/models/pose_landmark_full.tflite',
+  );
+
+  static const ModelInfo qualcommPose = ModelInfo(
+    name: 'Qualcomm BlazePose Optimized',
+    version: '1.0.0',
+    supportedLabels: [
+      'nose', 'left_eye_inner', 'left_eye', 'left_eye_outer', 'right_eye_inner', 'right_eye',
+      'right_eye_outer', 'left_ear', 'right_ear', 'mouth_left', 'mouth_right',
+      'left_shoulder', 'right_shoulder', 'left_elbow', 'right_elbow', 'left_wrist', 'right_wrist',
+      'left_pinky', 'right_pinky', 'left_index', 'right_index', 'left_thumb', 'right_thumb',
+      'left_hip', 'right_hip', 'left_knee', 'right_knee', 'left_ankle', 'right_ankle',
+      'left_heel', 'right_heel'
+    ],
+    defaultConfidenceThreshold: 0.3,
+    inputWidth: 256,
+    inputHeight: 256,
     modelPath: 'assets/models/pose_landmark_qualcomm.tflite',
   );
 
@@ -123,6 +142,8 @@ class ModelConfigurations {
         return yolov8n;
       case ModelType.mediapipe:
         return mediapipe;
+      case ModelType.qualcommPose:
+        return qualcommPose;
       case ModelType.sppbAnalysis:
         return sppbAnalysis;
     }

@@ -1,46 +1,37 @@
 import 'package:flutter/material.dart';
 import '../types/detection_types.dart';
 
-/// Painter for Qualcomm BlazePose landmarks (31 keypoints)
-/// Optimized for Qualcomm's BlazePose implementation
-class QualcommPainter extends CustomPainter {
+/// Painter for standard MediaPipe pose landmarks (33 keypoints)
+/// Uses official MediaPipe connections and landmark ordering
+class MediaPipePainter extends CustomPainter {
   final List<DetectionResult> landmarks;
   final bool showLabels;
   final double minConfidence;
 
-  QualcommPainter({
+  MediaPipePainter({
     required this.landmarks,
     this.showLabels = false,
     this.minConfidence = 0.3,
   });
 
-  // Pose landmark connections as provided
-  static const List<List<int>> _poseConnections = [
-    [0, 1],
-    [1, 2],
-    [2, 3],
-    [3, 7],
-    [0, 4],
-    [4, 5],
-    [5, 6],
-    [6, 8],
+  // Official MediaPipe pose connections (33 landmarks)
+  // Based on: https://google.github.io/mediapipe/solutions/pose.html
+  static const List<List<int>> _mediapipeConnections = [
+    // Face
+    [0, 1], [1, 2], [2, 3], [3, 7],
+    [0, 4], [4, 5], [5, 6], [6, 8],
     [9, 10],
-    [11, 13],
-    [13, 15],
-    [15, 17],
-    [17, 19],
-    [19, 15],
-    [15, 21],
-    [12, 14],
-    [14, 16],
-    [16, 18],
-    [18, 20],
-    [20, 16],
-    [16, 22],
-    [11, 12],
-    [12, 24],
-    [24, 23],
-    [23, 11],
+    
+    // Arms
+    [11, 13], [13, 15], [15, 17], [17, 19], [19, 15], [15, 21],
+    [12, 14], [14, 16], [16, 18], [18, 20], [20, 16], [16, 22],
+    
+    // Body
+    [11, 12], [12, 24], [24, 23], [23, 11],
+    
+    // Legs
+    [23, 25], [25, 27], [27, 29], [29, 31],
+    [24, 26], [26, 28], [28, 30], [30, 32],
   ];
 
   @override
@@ -58,21 +49,17 @@ class QualcommPainter extends CustomPainter {
       final y = lm.box.y * size.height;
       points.add(Offset(x, y));
       
-  // Determine visibility without relying on confidence (use normalized coordinates and box size)
-  // We consider a landmark visible if its normalized x/y are within [0,1] and the box has a positive size.
-  final validX = lm.box.x.isFinite && lm.box.x >= 0.0 && lm.box.x <= 1.0;
-  final validY = lm.box.y.isFinite && lm.box.y >= 0.0 && lm.box.y <= 1.0;
-  final validSize = lm.box.width.isFinite && lm.box.height.isFinite && lm.box.width > 0.0 && lm.box.height > 0.0;
-  visiblePoints.add(validX && validY && validSize);
+      // Check if point should be visible based on confidence
+      visiblePoints.add(lm.confidence >= minConfidence);
     }
 
     // Draw connections first (behind points)
     final connectionPaint = Paint()
-      ..color = Colors.green.withOpacity(0.8)
+      ..color = Colors.blue.withOpacity(0.8)
       ..strokeWidth = 2.0
       ..style = PaintingStyle.stroke;
 
-    for (final connection in _poseConnections) {
+    for (final connection in _mediapipeConnections) {
       final startIdx = connection[0];
       final endIdx = connection[1];
 
@@ -91,7 +78,7 @@ class QualcommPainter extends CustomPainter {
       ..style = PaintingStyle.stroke;
 
     final innerPaint = Paint()
-      ..color = Colors.red
+      ..color = Colors.blue
       ..style = PaintingStyle.fill;
 
     for (int i = 0; i < points.length; i++) {
@@ -134,7 +121,7 @@ class QualcommPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(QualcommPainter oldDelegate) {
+  bool shouldRepaint(MediaPipePainter oldDelegate) {
     return landmarks != oldDelegate.landmarks ||
            showLabels != oldDelegate.showLabels ||
            minConfidence != oldDelegate.minConfidence;

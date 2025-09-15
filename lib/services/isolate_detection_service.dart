@@ -120,3 +120,13 @@ class IsolateChairDetectionService extends IsolateYOLOv5DetectionService {
 class IsolatePoseDetectionService extends IsolateDetectionService {
   IsolatePoseDetectionService() : super('pose');
 }
+
+/// MediaPipe pose detection service using isolates
+class IsolateMediaPipePoseDetectionService extends IsolateDetectionService {
+  IsolateMediaPipePoseDetectionService() : super('mediapipe');
+}
+
+/// Qualcomm pose detection service using isolates
+class IsolateQualcommPoseDetectionService extends IsolateDetectionService {
+  IsolateQualcommPoseDetectionService() : super('qualcomm');
+}

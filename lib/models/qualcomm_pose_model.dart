@@ -7,20 +7,19 @@ import '../types/detection_types.dart';
 import '../config/model_config.dart';
 import '../utils/tflite_utils.dart';
 
-/// MediaPipe Pose Landmark Detection Model (Qualcomm optimized)
-/// Based on official Qualcomm AI Hub implementation:
-/// https://github.com/quic/ai-hub-models/blob/main/qai_hub_models/models/mediapipe_pose/model.py
+/// Qualcomm BlazePose Landmark Detection Model (Optimized)
+/// Based on Qualcomm AI Hub implementation for BlazePose
 ///
-/// Official spec:
+/// Spec:
 /// - Input: RGB image 256x256, normalized [0-1]
 /// - Output: [ld_scores, landmarks]
 ///   - ld_scores: Shape [B] - single confidence score per batch
-///   - landmarks: Shape [B, 31, 2] - normalized [0-1] coordinates (x,y)
-class MediaPipePoseQualcommModel extends BaseModel {
+///   - landmarks: Shape [B, 31, 4] - normalized coordinates (x,y,z,visibility)
+class QualcommPoseModel extends BaseModel {
   Interpreter? _interpreter;
   bool _isInitialized = false;
 
-  // MediaPipe pose landmark names (31 total as per official spec)
+  // Qualcomm BlazePose landmark names (31 total)
   static const List<String> _landmarkNames = [
     'nose',             // 0
     'left_eye_inner',   // 1
@@ -56,7 +55,7 @@ class MediaPipePoseQualcommModel extends BaseModel {
   ];
 
   @override
-  ModelInfo get modelInfo => ModelConfigurations.mediapipe;
+  ModelInfo get modelInfo => ModelConfigurations.qualcommPose;
 
   @override
   bool get isInitialized => _isInitialized;
@@ -64,7 +63,7 @@ class MediaPipePoseQualcommModel extends BaseModel {
   @override
   Future<void> initialize() async {
     try {
-      print('[QUALCOMM] Loading MediaPipe Pose model from ${modelInfo.modelPath}');
+      print('[QUALCOMM] Loading Qualcomm BlazePose model from ${modelInfo.modelPath}');
       _interpreter = await TFLiteUtils.loadModelFromAsset(modelInfo.modelPath);
 
       // Validate input dimensions match expected 256x256
@@ -73,7 +72,7 @@ class MediaPipePoseQualcommModel extends BaseModel {
       }
 
       _isInitialized = true;
-      print('[QUALCOMM] MediaPipe Pose model initialized successfully');
+      print('[QUALCOMM] Qualcomm BlazePose model initialized successfully');
     } catch (e) {
       _isInitialized = false;
       print('[QUALCOMM] Failed to initialize model: $e');
@@ -100,8 +99,6 @@ class MediaPipePoseQualcommModel extends BaseModel {
     }
 
     try {
-      print('[QUALCOMM] Processing frame: ${frameData.length} bytes, ${imageWidth}x${imageHeight}');
-
       // Decode and preprocess image
       final image = img.decodeImage(frameData);
       if (image == null) {
@@ -109,10 +106,10 @@ class MediaPipePoseQualcommModel extends BaseModel {
         return [];
       }
 
-      // Resize to model input size (256x256 as per official spec)
+      // Resize to model input size (256x256)
       final resized = img.copyResize(image, width: modelInfo.inputWidth, height: modelInfo.inputHeight);
       
-      // Convert to model input format: [batch=1, height=256, width=256, channels=3]
+      // Convert to model input format
       final inputTensor = _imageToTensor(resized);
 
       // Prepare output tensors based on model structure
@@ -121,21 +118,18 @@ class MediaPipePoseQualcommModel extends BaseModel {
       // Run inference
       _interpreter!.runForMultipleInputs([inputTensor], outputs);
 
-      // Parse outputs according to official spec: [ld_scores, landmarks]
+      // Parse outputs
       final results = _parseModelOutputs(outputs, imageWidth, imageHeight);
 
-      print('[QUALCOMM] Processed frame successfully, found ${results.length} landmarks');
       return results;
 
     } catch (e) {
       print('[QUALCOMM] Error processing frame: $e');
-      return [DetectionResult.createError('MediaPipe Qualcomm', 'Processing failed: $e')];
+      return [DetectionResult.createError('Qualcomm BlazePose', 'Processing failed: $e')];
     }
   }
 
   /// Convert image to model input tensor format
-  /// The error suggests the model expects a different input format
-  /// Let's check what the actual model input shape expects
   List<List<List<List<double>>>> _imageToTensor(img.Image image) {
     // Check actual input tensor shape from the model
     final inputTensors = _interpreter!.getInputTensors();
@@ -255,10 +249,10 @@ class MediaPipePoseQualcommModel extends BaseModel {
     return outputs;
   }
 
-  /// Parse model outputs according to official specification
-  /// Official format: [ld_scores, landmarks]
+  /// Parse model outputs
+  /// Format: [ld_scores, landmarks]
   /// - ld_scores: Shape [B] - confidence score
-  /// - landmarks: Shape [B, 31, 2] - normalized coordinates
+  /// - landmarks: Shape [B, 31, 4] - normalized coordinates (x,y,z,visibility)
   List<DetectionResult> _parseModelOutputs(Map<int, Object> outputs, int originalWidth, int originalHeight) {
     try {
       // Extract confidence score (should be output 0)
@@ -274,11 +268,8 @@ class MediaPipePoseQualcommModel extends BaseModel {
         }
       }
 
-      print('[QUALCOMM] Pose confidence: $confidence');
-
       // Apply confidence threshold
       if (confidence < modelInfo.defaultConfidenceThreshold) {
-        print('[QUALCOMM] Confidence $confidence below threshold ${modelInfo.defaultConfidenceThreshold}');
         return [];
       }
 
@@ -295,7 +286,6 @@ class MediaPipePoseQualcommModel extends BaseModel {
           final possibleResults = _parseLandmarks(entry.value, confidence, originalWidth, originalHeight);
           if (possibleResults.isNotEmpty) {
             results = possibleResults;
-            print('[QUALCOMM] Found landmarks in output ${entry.key}');
             break;
           }
         }
@@ -310,18 +300,13 @@ class MediaPipePoseQualcommModel extends BaseModel {
   }
 
   /// Parse landmark tensor into DetectionResult list
-  /// Actual format from logs: Shape [1, 31, 4] - 31 landmarks with 4 values each (x,y,z,visibility)
+  /// Format: Shape [1, 31, 4] - 31 landmarks with 4 values each (x,y,z,visibility)
   List<DetectionResult> _parseLandmarks(Object landmarkOutput, double confidence, int originalWidth, int originalHeight) {
     try {
-      print('[QUALCOMM] Parsing landmarks from: ${landmarkOutput.runtimeType}');
-      print('[QUALCOMM] Input confidence: $confidence, dimensions: ${originalWidth}x$originalHeight');
-      
       // Handle the 3D tensor format [1, 31, 4]
       if (landmarkOutput is List && landmarkOutput.isNotEmpty) {
         final batch = landmarkOutput[0];
         if (batch is List && batch.length >= 31) {
-          print('[QUALCOMM] Found batch with ${batch.length} landmarks');
-          
           final results = <DetectionResult>[];
           
           for (int i = 0; i < _landmarkNames.length && i < batch.length; i++) {
@@ -332,11 +317,7 @@ class MediaPipePoseQualcommModel extends BaseModel {
               double y = (landmark[1] as num).toDouble();
               
               // Extract z and visibility if available
-              double z = landmark.length > 2 ? (landmark[2] as num).toDouble() : 0.0;
               double visibility = landmark.length > 3 ? (landmark[3] as num).toDouble() : 1.0;
-              
-              // Debug first few landmarks
-              print('[QUALCOMM] ${_landmarkNames[i]}: x=$x, y=$y, z=$z, vis=$visibility');
               
               // Handle different coordinate formats
               if (x > 1.0 || y > 1.0) {
@@ -352,10 +333,6 @@ class MediaPipePoseQualcommModel extends BaseModel {
               // Use visibility as confidence if it's in reasonable range
               final landmarkConfidence = (visibility >= 0.0 && visibility <= 1.0) ? visibility * confidence : confidence;
 
-              if (i < 3) {
-                print('[QUALCOMM] Final ${_landmarkNames[i]}: pos=($x, $y), conf=$landmarkConfidence');
-              }
-
               // Create detection result for this landmark
               results.add(DetectionResult(
                 label: _landmarkNames[i],
@@ -369,8 +346,6 @@ class MediaPipePoseQualcommModel extends BaseModel {
               ));
             }
           }
-          
-          print('[QUALCOMM] Successfully parsed ${results.length} landmarks from 3D tensor');
           
           return results;
         }
@@ -391,23 +366,12 @@ class MediaPipePoseQualcommModel extends BaseModel {
       }
       flatten(landmarkOutput);
 
-      print('[QUALCOMM] Fallback: Landmark tensor flattened to ${flatData.length} values');
-      
       if (flatData.length < 62) { // 31 landmarks × 2 coordinates = 62 minimum
-        print('[QUALCOMM] Insufficient landmark data: ${flatData.length} values');
         return [];
       }
 
       // Calculate values per landmark
       final valuesPerLandmark = (flatData.length / _landmarkNames.length).round();
-      print('[QUALCOMM] Detected $valuesPerLandmark values per landmark');
-
-      // Debug first few landmarks
-      for (int i = 0; i < 3 && i < _landmarkNames.length; i++) {
-        final start = i * valuesPerLandmark;
-        final values = flatData.skip(start).take(valuesPerLandmark).toList();
-        print('[QUALCOMM] ${_landmarkNames[i]} values: ${values.map((v) => v.toStringAsFixed(4)).join(', ')}');
-      }
 
       // Parse each landmark
       final results = <DetectionResult>[];
@@ -426,7 +390,7 @@ class MediaPipePoseQualcommModel extends BaseModel {
           y = y / modelInfo.inputHeight;
         }
 
-        // Ensure coordinates are in [0-1] range as per official spec
+        // Ensure coordinates are in [0-1] range
         x = x.clamp(0.0, 1.0);
         y = y.clamp(0.0, 1.0);
 
@@ -443,7 +407,6 @@ class MediaPipePoseQualcommModel extends BaseModel {
         ));
       }
 
-      print('[QUALCOMM] Successfully parsed ${results.length} landmarks from flattened data');
       return results;
 
     } catch (e) {
