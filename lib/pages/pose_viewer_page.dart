@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import '../services/isolate_detection_service.dart';
+import '../services/mlkit_pose_detection_service.dart';
+import '../services/base_detection_service.dart';
 import '../types/detection_types.dart';
 import 'dart:ui' as ui;
-import '../widgets/pose_qualcomm_painter.dart';
 import '../widgets/pose_mediapipe_painter.dart';
+import '../widgets/pose_mlkit_painter.dart';
 import 'dart:async';
 import 'package:camera/camera.dart';
 import '../controllers/camera_feed_controller.dart';
@@ -18,7 +20,7 @@ class PoseViewerPage extends StatefulWidget {
 }
 
 class PoseViewerPageState extends State<PoseViewerPage> {
-  IsolateDetectionService? _service;
+  BaseDetectionService? _service;
   ui.Image? _image;
   List<DetectionResult> _landmarks = [];
   String? _selectedAsset;
@@ -34,8 +36,8 @@ class PoseViewerPageState extends State<PoseViewerPage> {
   bool _isProcessing = false;
   
   // Model type selection
-  String _selectedModelType = 'Qualcomm';
-  final List<String> _modelTypes = ['Qualcomm', 'MediaPipe'];
+  String _selectedModelType = 'MLKit';
+  final List<String> _modelTypes = ['MLKit', 'MediaPipe'];
 
   void _zoomBy(double factor) {
     final matrix = _transformationController.value;
@@ -80,7 +82,8 @@ class PoseViewerPageState extends State<PoseViewerPage> {
       if (_selectedModelType == 'MediaPipe') {
         _service = IsolateMediaPipePoseDetectionService();
       } else {
-        _service = IsolateQualcommPoseDetectionService();
+        // Default to MLKit
+        _service = MLKitPoseDetectionService();
       }
       
       await _service!.initialize();
@@ -94,7 +97,8 @@ class PoseViewerPageState extends State<PoseViewerPage> {
     if (_selectedModelType == 'MediaPipe') {
       return MediaPipePainter(landmarks: _landmarks, showLabels: showLabels);
     } else {
-      return QualcommPainter(landmarks: _landmarks, showLabels: showLabels);
+      // Default to MLKit
+      return MLKitPainter(landmarks: _landmarks, showLabels: showLabels);
     }
   }
 
@@ -141,7 +145,8 @@ class PoseViewerPageState extends State<PoseViewerPage> {
 
   void _startInferenceTimer() {
     if (_inferenceTimer != null && _inferenceTimer!.isActive) return;
-    _inferenceTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) async {
+    // Increase interval from 500ms to 1000ms for better performance with ML Kit
+    _inferenceTimer = Timer.periodic(const Duration(milliseconds: 1000), (timer) async {
       if (!_showCameraFeed) return;
       if (_isProcessing) return; // skip if already processing
 
@@ -150,10 +155,15 @@ class PoseViewerPageState extends State<PoseViewerPage> {
 
       _isProcessing = true;
       try {
-        final bytes = CameraImageUtils.convertCameraImageToBytes(lastImage, isFrontCamera: _cameraFeedController.isFrontCamera);
+        // Skip rotation for MLKit model to avoid orientation issues\
+        final bytes = CameraImageUtils.convertCameraImageToBytes(
+          lastImage, 
+          isFrontCamera: _cameraFeedController.isFrontCamera
+        );
         if (bytes.isEmpty) return;
 
         final results = await _service?.processFrame(bytes, lastImage.height, lastImage.width) ?? [];
+        
         setState(() {
           _landmarks = results;
         });
