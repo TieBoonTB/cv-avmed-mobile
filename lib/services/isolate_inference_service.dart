@@ -54,7 +54,7 @@ class IsolateInferenceService {
   StreamSubscription? _permanentSubscription;
   bool _isInitialized = false;
   bool _isInitializing = false;
-  
+
   // Request tracking
   final Map<String, Completer<List<DetectionResult>>> _pendingRequests = {};
   int _requestCounter = 0;
@@ -62,40 +62,42 @@ class IsolateInferenceService {
   bool get isInitialized => _isInitialized;
 
   /// Initialize the isolate and communication channels
-  Future<void> initialize(String modelType) async {
+  Future<void> initialize(ModelType modelType) async {
     if (_isInitialized || _isInitializing) {
       return;
     }
 
     _isInitializing = true;
-    
+
     try {
       print('Initializing isolate inference service for $modelType...');
-      
+
       // Load model bytes in main thread (can access assets)
       final modelBytes = await _loadModelBytes(modelType);
-      
-  // Create receive port for main isolate
-  _receivePort = ReceivePort();
-      
+
+      // Create receive port for main isolate
+      _receivePort = ReceivePort();
+
       // Spawn the isolate
       _isolate = await Isolate.spawn(
         _isolateEntryPoint,
         _receivePort!.sendPort,
         debugName: 'InferenceIsolate',
       );
-      
+
       print('Isolate spawned successfully');
-      
+
       // Set up message handling with a single persistent listener
       final completer = Completer<void>();
       bool isInitialized = false;
-      
-  _permanentSubscription = _receivePort!.listen((message) {
+
+      _permanentSubscription = _receivePort!.listen((message) {
         try {
-          final isolateMessage = IsolateMessage.fromMap(Map<String, dynamic>.from(message));
-          
-            if (!isInitialized && isolateMessage.type == IsolateMessageType.ready) {
+          final isolateMessage =
+              IsolateMessage.fromMap(Map<String, dynamic>.from(message));
+
+          if (!isInitialized &&
+              isolateMessage.type == IsolateMessageType.ready) {
             print('Isolate is ready');
             _sendPort = isolateMessage.data['sendPort'] as SendPort?;
             isInitialized = true;
@@ -113,33 +115,35 @@ class IsolateInferenceService {
           }
         }
       });
-      
+
       // Wait for isolate to be ready
       await completer.future.timeout(
         const Duration(seconds: 30),
-        onTimeout: () => throw TimeoutException('Isolate initialization timeout'),
+        onTimeout: () =>
+            throw TimeoutException('Isolate initialization timeout'),
       );
-      
-  // Send initialization message with model bytes
+
+      // Send initialization message with model bytes
       final initRequestId = _generateRequestId();
-      
+
       _pendingRequests[initRequestId] = Completer<List<DetectionResult>>();
-      
+
       _sendPort?.send(IsolateMessage(
         type: IsolateMessageType.initialize,
         data: {
-          'modelType': modelType,
+          'modelType': modelType.index,
           'modelBytes': modelBytes,
         },
         requestId: initRequestId,
       ).toMap());
-      
+
       // Wait for initialization to complete
       try {
         await _pendingRequests[initRequestId]!.future.timeout(
-          const Duration(seconds: 60),
-          onTimeout: () => throw TimeoutException('Model initialization timeout'),
-        );
+              const Duration(seconds: 60),
+              onTimeout: () =>
+                  throw TimeoutException('Model initialization timeout'),
+            );
         print('Model initialization completed successfully');
       } catch (e) {
         print('Model initialization failed: $e');
@@ -149,7 +153,6 @@ class IsolateInferenceService {
       }
       _isInitialized = true;
       print('Isolate inference service initialized successfully');
-      
     } catch (e) {
       print('Error initializing isolate inference service: $e');
       await dispose();
@@ -160,32 +163,42 @@ class IsolateInferenceService {
   }
 
   /// Load model bytes based on model type
-  Future<Map<String, Uint8List>> _loadModelBytes(String modelType) async {
-    switch (modelType.toLowerCase()) {
-      case 'yolov5':
-      case 'yolov5s':
-        final yoloBytes = await TFLiteUtils.loadModelBytesFromAsset(ModelConfigurations.yolov5s.modelPath);
+  Future<Map<String, Uint8List>> _loadModelBytes(ModelType modelType) async {
+    switch (modelType) {
+      case ModelType.yolov5s:
+        final yoloBytes = await TFLiteUtils.loadModelBytesFromAsset(
+            ModelConfigurations.yolov5s.modelPath);
         return {'main': yoloBytes};
-        
-        case 'avmed':
-        final mainBytes = await TFLiteUtils.loadModelBytesFromAsset(ModelConfigurations.avmed.modelPath);
-        final faceBytes = await TFLiteUtils.loadModelBytesFromAsset('assets/models/face-detection_f16.tflite');
+
+      case ModelType.avmed:
+        final mainBytes = await TFLiteUtils.loadModelBytesFromAsset(
+            ModelConfigurations.avmed.modelPath);
+        final faceBytes = await TFLiteUtils.loadModelBytesFromAsset(
+            'assets/models/face-detection_f16.tflite');
         return {'main': mainBytes, 'face': faceBytes};
-        
-      case 'pose':
-      case 'mediapipe':
-        final poseBytes = await TFLiteUtils.loadModelBytesFromAsset(ModelConfigurations.mediapipe.modelPath);
+
+      case ModelType.mediapipe:
+        final poseBytes = await TFLiteUtils.loadModelBytesFromAsset(
+            ModelConfigurations.mediapipe.modelPath);
         return {'main': poseBytes};
-      case 'qualcomm':
-      case 'pose-qualcomm':
-      case 'qualcommpose':
-        final qBytes = await TFLiteUtils.loadModelBytesFromAsset(ModelConfigurations.qualcommPose.modelPath);
-        return {'main': qBytes};
-      case 'sppb':
-        final poseBytes2 = await TFLiteUtils.loadModelBytesFromAsset(ModelConfigurations.mediapipe.modelPath);
+
+      case ModelType.mlkit:
+        // ML Kit doesn't need asset bytes
+        return {};
+
+      case ModelType.yolov8n:
+        final yolov8Bytes = await TFLiteUtils.loadModelBytesFromAsset(
+            ModelConfigurations.yolov8n.modelPath);
+        return {'main': yolov8Bytes};
+
+      case ModelType.sppbAnalysis:
+        final poseBytes2 = await TFLiteUtils.loadModelBytesFromAsset(
+            ModelConfigurations.mediapipe.modelPath);
         return {'main': poseBytes2};
-      default:
-        throw Exception('Unknown model type: $modelType');
+
+      case ModelType.mock:
+        // Mock model doesn't need bytes
+        return {};
     }
   }
 
@@ -203,7 +216,7 @@ class IsolateInferenceService {
     final completer = Completer<List<DetectionResult>>();
     _pendingRequests[requestId] = completer;
 
-      try {
+    try {
       // Send frame processing request
       if (_sendPort == null) {
         throw Exception('Isolate send port is not available');
@@ -238,19 +251,20 @@ class IsolateInferenceService {
   /// Handle regular messages (after initialization)
   void _handleRegularMessage(dynamic message) {
     try {
-      final isolateMessage = IsolateMessage.fromMap(Map<String, dynamic>.from(message));
-      
+      final isolateMessage =
+          IsolateMessage.fromMap(Map<String, dynamic>.from(message));
+
       switch (isolateMessage.type) {
         case IsolateMessageType.result:
           _handleResultMessage(isolateMessage);
-          
+
         case IsolateMessageType.error:
           _handleErrorMessage(isolateMessage);
-          
+
         case IsolateMessageType.ready:
           // Ignore duplicate ready messages
           print('Ignoring duplicate ready message');
-          
+
         default:
           print('Unknown message type: ${isolateMessage.type}');
       }
@@ -263,12 +277,16 @@ class IsolateInferenceService {
   void _handleResultMessage(IsolateMessage message) {
     final requestId = message.requestId;
     print('Received result message for request: $requestId');
-    
+
     if (requestId != null && _pendingRequests.containsKey(requestId)) {
       final resultData = message.data['detections'] as List<dynamic>;
-      final detections = resultData.map((data) => DetectionResult.fromMap(Map<String, dynamic>.from(data))).toList();
-      
-      print('Completing request $requestId with ${detections.length} detections');
+      final detections = resultData
+          .map((data) =>
+              DetectionResult.fromMap(Map<String, dynamic>.from(data)))
+          .toList();
+
+      print(
+          'Completing request $requestId with ${detections.length} detections');
       _pendingRequests[requestId]!.complete(detections);
       _pendingRequests.remove(requestId);
     } else {
@@ -280,9 +298,9 @@ class IsolateInferenceService {
   void _handleErrorMessage(IsolateMessage message) {
     final requestId = message.requestId;
     final error = message.data['error'] ?? 'Unknown error';
-    
+
     print('Isolate error: $error');
-    
+
     if (requestId != null && _pendingRequests.containsKey(requestId)) {
       _pendingRequests[requestId]!.complete([]);
       _pendingRequests.remove(requestId);
@@ -308,23 +326,23 @@ class IsolateInferenceService {
       } catch (e) {
         print('Error sending dispose message: $e');
       }
-      
+
       // Kill the isolate
       _isolate!.kill(priority: Isolate.immediate);
       _isolate = null;
     }
-    
+
     // Cancel subscriptions
     _permanentSubscription?.cancel();
     _permanentSubscription = null;
-    
+
     // Close receive port
     try {
       _receivePort?.close();
     } catch (e) {
       print('Error closing receive port: $e');
     }
-    
+
     // Complete any pending requests with empty results
     for (final completer in _pendingRequests.values) {
       if (!completer.isCompleted) {
@@ -332,7 +350,7 @@ class IsolateInferenceService {
       }
     }
     _pendingRequests.clear();
-    
+
     _isInitialized = false;
     print('Isolate inference service disposed');
   }

@@ -11,7 +11,7 @@ class CameraFeedController extends GetxController {
   bool _isSwitching = false;
 
   bool get isFrontCamera => _isFrontCamera;
-  
+
   /// Get the current camera image for external processing
   CameraImage? get currentImage => lastImage.value;
 
@@ -22,55 +22,54 @@ class CameraFeedController extends GetxController {
 
   Future<void> _initController(bool useFront) async {
     debugPrint('Initializing camera controller (useFront: $useFront)');
-    
+
     try {
       // Make sure we're in the right state before starting
       isInitialized.value = false;
-      
+
       // Make sure camera list is not empty
       if (_cameras.isEmpty) {
         debugPrint('No cameras available');
         return;
       }
-      
+
       // Select the appropriate camera with better error handling
       CameraDescription camera;
       try {
         if (useFront) {
           // Try to find front camera, fall back to first camera
           camera = _cameras.firstWhere(
-            (cam) => cam.lensDirection == CameraLensDirection.front,
-            orElse: () => _cameras.first
-          );
+              (cam) => cam.lensDirection == CameraLensDirection.front,
+              orElse: () => _cameras.first);
         } else {
           // Try to find back camera, fall back to last camera
           camera = _cameras.firstWhere(
-            (cam) => cam.lensDirection == CameraLensDirection.back,
-            orElse: () => _cameras.last
-          );
+              (cam) => cam.lensDirection == CameraLensDirection.back,
+              orElse: () => _cameras.last);
         }
-        debugPrint('Selected camera: ${camera.name}, direction: ${camera.lensDirection}');
+        debugPrint(
+            'Selected camera: ${camera.name}, direction: ${camera.lensDirection}');
       } catch (e) {
         debugPrint('Error selecting camera: $e');
         // Fall back to first camera in the list
         camera = _cameras.first;
       }
-      
+
       // Create the new controller
       cameraController = CameraController(
         camera,
         ResolutionPreset.medium,
         enableAudio: false,
       );
-      
+
       // Initialize the controller
       debugPrint('Initializing camera controller...');
       await cameraController!.initialize();
       debugPrint('Camera controller initialized');
-      
+
       // Mark as initialized BEFORE starting the stream
       isInitialized.value = true;
-      
+
       // Start the image stream with error handling
       try {
         debugPrint('Starting image stream...');
@@ -91,18 +90,18 @@ class CameraFeedController extends GetxController {
 
   Future<void> switchCamera() async {
     if (_cameras.length < 2 || _isSwitching) return;
-    
+
     _isSwitching = true;
     debugPrint('Switching camera...');
-    
+
     try {
       // Set state before anything else to prevent UI from trying to use the controller during transition
       isInitialized.value = false;
-      
+
       // Store current camera direction
       final wasFront = _isFrontCamera;
       _isFrontCamera = !wasFront;
-      
+
       // Important: First stop the image stream before doing anything else
       if (cameraController != null) {
         if (cameraController!.value.isStreamingImages) {
@@ -115,12 +114,12 @@ class CameraFeedController extends GetxController {
           }
         }
       }
-      
+
       // Use a local variable for the old controller and set instance to null
       // This ensures any other async operations won't try to use the old controller
       final oldController = cameraController;
       cameraController = null;
-      
+
       // Dispose the old controller with proper error handling
       if (oldController != null) {
         try {
@@ -131,16 +130,16 @@ class CameraFeedController extends GetxController {
           // Continue anyway - we need to create a new controller
         }
       }
-      
+
       // Small delay to ensure complete disposal
       await Future.delayed(const Duration(milliseconds: 300));
-      
+
       // Initialize the new camera
       await _initController(_isFrontCamera);
     } catch (e) {
       debugPrint('Failed to switch camera: $e');
       _isFrontCamera = !_isFrontCamera; // Revert the camera direction change
-      
+
       // Try to initialize with the original camera as fallback
       try {
         await _initController(_isFrontCamera);
@@ -162,7 +161,7 @@ class CameraFeedController extends GetxController {
 
 class CameraFeedView extends StatefulWidget {
   const CameraFeedView({super.key});
-  
+
   @override
   State<CameraFeedView> createState() => _CameraFeedViewState();
 }
@@ -170,18 +169,18 @@ class CameraFeedView extends StatefulWidget {
 class _CameraFeedViewState extends State<CameraFeedView> {
   late final CameraFeedController controller;
   bool _hasAttemptedInitialization = false;
-  
+
   @override
   void initState() {
     super.initState();
     controller = Get.put(CameraFeedController());
-    
+
     // Add a small delay before initializing to ensure the widget is fully built
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _initializeCamera();
     });
   }
-  
+
   Future<void> _initializeCamera() async {
     if (!_hasAttemptedInitialization) {
       _hasAttemptedInitialization = true;
@@ -189,7 +188,7 @@ class _CameraFeedViewState extends State<CameraFeedView> {
       await controller.initializeCamera();
     }
   }
-  
+
   @override
   Widget build(BuildContext context) {
     return Obx(() {
@@ -200,7 +199,7 @@ class _CameraFeedViewState extends State<CameraFeedView> {
           controller.initializeCamera();
         });
       }
-      
+
       // Show loading indicator if not initialized
       if (!controller.isInitialized.value) {
         return Center(
@@ -209,7 +208,7 @@ class _CameraFeedViewState extends State<CameraFeedView> {
             children: [
               CircularProgressIndicator(color: Colors.white),
               SizedBox(height: 16),
-              Text('Setting up camera...', 
+              Text('Setting up camera...',
                   style: TextStyle(color: Colors.white, fontSize: 16)),
               SizedBox(height: 8),
               if (_hasAttemptedInitialization)
@@ -224,7 +223,7 @@ class _CameraFeedViewState extends State<CameraFeedView> {
           ),
         );
       }
-      
+
       // Handle null controller
       if (controller.cameraController == null) {
         return Center(
@@ -249,7 +248,7 @@ class _CameraFeedViewState extends State<CameraFeedView> {
           ),
         );
       }
-      
+
       // Try to create the camera preview with error handling
       try {
         if (!controller.cameraController!.value.isInitialized) {
@@ -272,7 +271,8 @@ class _CameraFeedViewState extends State<CameraFeedView> {
             children: [
               Icon(Icons.error_outline, size: 48, color: Colors.red),
               SizedBox(height: 16),
-              Text('Camera Error', style: TextStyle(color: Colors.white, fontSize: 18)),
+              Text('Camera Error',
+                  style: TextStyle(color: Colors.white, fontSize: 18)),
               SizedBox(height: 8),
               Text(
                 e.toString(),

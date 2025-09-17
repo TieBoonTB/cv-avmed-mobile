@@ -1,66 +1,8 @@
 import '../services/base_detection_service.dart';
-import '../services/yolov5_detection_service.dart';
 import '../models/base_model.dart';
 import '../models/mediapipe_pose_model.dart';
 import '../types/detection_types.dart';
 import 'dart:typed_data';
-
-/// Chair detection service using existing YOLOv5 model
-class ChairDetectionService extends YOLOv5DetectionService {
-  @override
-  String get serviceType => 'Chair Detection Service (YOLOv5 filtered)';
-
-  @override
-  Future<List<DetectionResult>> processFrame(Uint8List frameData, int imageHeight, int imageWidth) async {
-    if (!isInitialized) {
-      throw StateError('Chair Detection Service not initialized. Call initialize() first.');
-    }
-
-    try {
-      // Get all YOLOv5 detections
-      final allDetections = await super.processFrame(frameData, imageHeight, imageWidth);
-      
-      // Filter for chairs only
-      final chairDetections = allDetections.where((d) => d.label.toLowerCase() == 'chair').toList();
-      
-      print('Chair Detection: Found ${chairDetections.length} chairs out of ${allDetections.length} total detections');
-      
-      // Update cache with filtered results
-      updateDetections(chairDetections);
-      return chairDetections;
-    } catch (e) {
-      print('Error processing frame in Chair Detection Service: $e');
-      return [DetectionResult.createError('Chair Detection', e.toString())];
-    }
-  }
-
-  /// Detect chairs in the frame
-  List<DetectionResult> detectChair(List<DetectionResult> detections) {
-    return detections.where((d) => d.label == 'chair').toList();
-  }
-
-  /// Validate chair positioning for test setup
-  bool validateChairSetup(List<DetectionResult> detections) {
-    final chairs = detectChair(detections);
-    
-    if (chairs.isEmpty) {
-      print('Chair validation failed: No chairs detected');
-      return false;
-    }
-    
-    // Check chair is in center area and properly sized
-    final chair = chairs.first;
-    final centerX = chair.box.x + chair.box.width / 2;
-    final centerY = chair.box.y + chair.box.height / 2;
-    
-    final isValidPosition = centerX > 0.3 && centerX < 0.7 && // Centered horizontally
-           centerY > 0.4 && centerY < 0.8 && // Good vertical position
-           chair.confidence > 0.7;           // Good confidence (lowered from 0.8)
-    
-    print('Chair validation: position($centerX, $centerY), confidence(${chair.confidence}), valid: $isValidPosition');
-    return isValidPosition;
-  }
-}
 
 /// Pose detection service using MediaPipe pose_landmark_full model
 class PoseDetectionService extends BaseDetectionService {
@@ -87,13 +29,16 @@ class PoseDetectionService extends BaseDetectionService {
   }
 
   @override
-  Future<List<DetectionResult>> processFrame(Uint8List frameData, int imageHeight, int imageWidth) async {
+  Future<List<DetectionResult>> processFrame(
+      Uint8List frameData, int imageHeight, int imageWidth) async {
     if (!isInitialized) {
-      throw StateError('Pose Detection Service not initialized. Call initialize() first.');
+      throw StateError(
+          'Pose Detection Service not initialized. Call initialize() first.');
     }
 
     try {
-      final results = await _model.processFrame(frameData, imageHeight, imageWidth);
+      final results =
+          await _model.processFrame(frameData, imageHeight, imageWidth);
       print('Pose Detection: Found ${results.length} landmarks');
       updateDetections(results);
       return results;
@@ -106,41 +51,57 @@ class PoseDetectionService extends BaseDetectionService {
   /// Extract key body landmarks from detection results
   Map<String, DetectionBox> extractLandmarks(List<DetectionResult> detections) {
     final landmarks = <String, DetectionBox>{};
-    
+
     // MediaPipe pose model provides 33 landmarks, we focus on key ones for chair stand test
     for (final detection in detections) {
-      if (['left_hip', 'right_hip', 'left_knee', 'right_knee', 
-           'left_shoulder', 'right_shoulder', 'left_ankle', 'right_ankle'].contains(detection.label)) {
+      if ([
+        'left_hip',
+        'right_hip',
+        'left_knee',
+        'right_knee',
+        'left_shoulder',
+        'right_shoulder',
+        'left_ankle',
+        'right_ankle'
+      ].contains(detection.label)) {
         landmarks[detection.label] = detection.box;
       }
     }
-    
+
     return landmarks;
   }
 
   /// Check if person is properly positioned for test
   bool validatePersonPosition(List<DetectionResult> detections) {
     final landmarks = extractLandmarks(detections);
-    
+
     // Ensure key landmarks are detected for chair stand test
-    final requiredLandmarks = ['left_hip', 'right_hip', 'left_knee', 'right_knee'];
+    final requiredLandmarks = [
+      'left_hip',
+      'right_hip',
+      'left_knee',
+      'right_knee'
+    ];
     final missingLandmarks = <String>[];
-    
+
     for (final landmark in requiredLandmarks) {
       if (!landmarks.containsKey(landmark)) {
         missingLandmarks.add(landmark);
       }
     }
-    
+
     if (missingLandmarks.isNotEmpty) {
-      print('Person validation failed: Missing landmarks: ${missingLandmarks.join(', ')}');
+      print(
+          'Person validation failed: Missing landmarks: ${missingLandmarks.join(', ')}');
       return false;
     }
-    
+
     // Additional validation: check if person is facing the camera
-    final hasShoulders = landmarks.containsKey('left_shoulder') && landmarks.containsKey('right_shoulder');
-    
-    print('Person validation: Found ${landmarks.length} landmarks, has shoulders: $hasShoulders');
+    final hasShoulders = landmarks.containsKey('left_shoulder') &&
+        landmarks.containsKey('right_shoulder');
+
+    print(
+        'Person validation: Found ${landmarks.length} landmarks, has shoulders: $hasShoulders');
     return hasShoulders;
   }
 
@@ -153,8 +114,12 @@ class PoseDetectionService extends BaseDetectionService {
     final leftShoulder = landmarks['left_shoulder'];
     final rightShoulder = landmarks['right_shoulder'];
 
-    if (leftHip == null || rightHip == null || leftKnee == null || rightKnee == null ||
-        leftShoulder == null || rightShoulder == null) {
+    if (leftHip == null ||
+        rightHip == null ||
+        leftKnee == null ||
+        rightKnee == null ||
+        leftShoulder == null ||
+        rightShoulder == null) {
       return null;
     }
 
@@ -168,15 +133,15 @@ class PoseDetectionService extends BaseDetectionService {
     // When standing: hip and knee are more aligned, angle is larger
     final hipKneeDistance = (avgKneeY - avgHipY).abs();
     final shoulderHipDistance = (avgHipY - avgShoulderY).abs();
-    
+
     if (shoulderHipDistance == 0) return null;
-    
+
     final ratio = hipKneeDistance / shoulderHipDistance;
-    
+
     // Map ratio to realistic hip angle (90-180 degrees)
     // This is a simplified calculation - in practice, you'd use proper vector math
     final angle = 90.0 + (ratio * 90.0).clamp(0.0, 90.0);
-    
+
     return angle;
   }
 
@@ -195,7 +160,7 @@ class SPPBAnalysisService extends BaseDetectionService {
   int _completedRepetitions = 0;
   DateTime? _testStartTime;
   DateTime? _currentRepStartTime;
-  
+
   // Clinical metrics
   List<double> _repetitionTimes = [];
   double _totalTestTime = 0.0;
@@ -222,11 +187,13 @@ class SPPBAnalysisService extends BaseDetectionService {
   }
 
   @override
-  Future<List<DetectionResult>> processFrame(Uint8List frameData, int imageHeight, int imageWidth) async {
+  Future<List<DetectionResult>> processFrame(
+      Uint8List frameData, int imageHeight, int imageWidth) async {
     if (!isInitialized) {
-      throw StateError('SPPB Analysis Service not initialized. Call initialize() first.');
+      throw StateError(
+          'SPPB Analysis Service not initialized. Call initialize() first.');
     }
-    
+
     // This service doesn't process frames directly, it analyzes pose data
     // Return empty list as it's a data analysis service, not a detection service
     return [];
@@ -237,8 +204,10 @@ class SPPBAnalysisService extends BaseDetectionService {
     required Map<String, DetectionBox> landmarks,
     required DateTime timestamp,
   }) {
-    if (!landmarks.containsKey('left_hip') || !landmarks.containsKey('right_hip') ||
-        !landmarks.containsKey('left_knee') || !landmarks.containsKey('right_knee')) {
+    if (!landmarks.containsKey('left_hip') ||
+        !landmarks.containsKey('right_hip') ||
+        !landmarks.containsKey('left_knee') ||
+        !landmarks.containsKey('right_knee')) {
       return SPPBAnalysisResult.invalid();
     }
 
@@ -247,24 +216,26 @@ class SPPBAnalysisService extends BaseDetectionService {
     if (hipAngle == null) {
       return SPPBAnalysisResult.invalid();
     }
-    
+
     _hipAngleHistory.add(hipAngle);
-    
+
     // Determine movement phase based on angle changes
-    final previousAngle = _hipAngleHistory.length > 1 ? _hipAngleHistory[_hipAngleHistory.length - 2] : hipAngle;
+    final previousAngle = _hipAngleHistory.length > 1
+        ? _hipAngleHistory[_hipAngleHistory.length - 2]
+        : hipAngle;
     final movementPhase = _analyzeMovementPhase(
       hipAngle: hipAngle,
       previousHipAngle: previousAngle,
     );
-    
+
     _movementPhaseHistory.add(movementPhase);
-    
+
     // Detect completed repetitions
     _detectRepetitions(movementPhase, timestamp);
-    
+
     // Calculate clinical metrics
     _updateClinicalMetrics(timestamp);
-    
+
     return SPPBAnalysisResult(
       hipAngle: hipAngle,
       movementPhase: movementPhase,
@@ -284,14 +255,17 @@ class SPPBAnalysisService extends BaseDetectionService {
     final leftShoulder = landmarks['left_shoulder'];
     final rightShoulder = landmarks['right_shoulder'];
 
-    if (leftHip == null || rightHip == null || leftKnee == null || rightKnee == null) {
+    if (leftHip == null ||
+        rightHip == null ||
+        leftKnee == null ||
+        rightKnee == null) {
       return null;
     }
 
     // Calculate average positions for more stable measurements
     final avgHipY = (leftHip.y + rightHip.y) / 2;
     final avgKneeY = (leftKnee.y + rightKnee.y) / 2;
-    
+
     // Use shoulder position if available for better angle calculation
     double avgShoulderY = avgHipY - 0.2; // Default if shoulders not detected
     if (leftShoulder != null && rightShoulder != null) {
@@ -303,14 +277,14 @@ class SPPBAnalysisService extends BaseDetectionService {
     // When standing: hip and knee are more aligned, larger angle
     final hipKneeDistance = (avgKneeY - avgHipY).abs();
     final shoulderHipDistance = (avgHipY - avgShoulderY).abs();
-    
+
     if (shoulderHipDistance == 0) return null;
-    
+
     final ratio = hipKneeDistance / shoulderHipDistance;
-    
+
     // Map ratio to realistic hip angle (90-180 degrees)
     final angle = 90.0 + (ratio * 90.0).clamp(0.0, 90.0);
-    
+
     return angle;
   }
 
@@ -321,10 +295,11 @@ class SPPBAnalysisService extends BaseDetectionService {
   }) {
     const double sitToStandThreshold = 135.0;
     const double standToSitThreshold = 105.0;
-    const double angleChangeThreshold = 5.0; // Minimum change to detect movement
-    
+    const double angleChangeThreshold =
+        5.0; // Minimum change to detect movement
+
     final angleChange = hipAngle - previousHipAngle;
-    
+
     if (hipAngle > sitToStandThreshold) {
       if (angleChange > angleChangeThreshold) {
         return 'sit_to_stand';
@@ -351,26 +326,27 @@ class SPPBAnalysisService extends BaseDetectionService {
 
   void _detectRepetitions(String currentPhase, DateTime timestamp) {
     if (_movementPhaseHistory.length < 10) return; // Need some history
-    
+
     // Look for sit->stand->sit pattern
-    final recentPhases = _movementPhaseHistory.skip(_movementPhaseHistory.length - 10).toList();
-    
-    if (recentPhases.contains('sitting') && 
-        recentPhases.contains('sit_to_stand') && 
-        recentPhases.contains('standing') && 
-        recentPhases.contains('stand_to_sit') && 
+    final recentPhases =
+        _movementPhaseHistory.skip(_movementPhaseHistory.length - 10).toList();
+
+    if (recentPhases.contains('sitting') &&
+        recentPhases.contains('sit_to_stand') &&
+        recentPhases.contains('standing') &&
+        recentPhases.contains('stand_to_sit') &&
         currentPhase == 'sitting') {
-      
       _completedRepetitions++;
-      
+
       // Record repetition time
       if (_currentRepStartTime != null) {
-        final repTime = timestamp.difference(_currentRepStartTime!).inMilliseconds / 1000.0;
+        final repTime =
+            timestamp.difference(_currentRepStartTime!).inMilliseconds / 1000.0;
         _repetitionTimes.add(repTime);
       }
-      
+
       _currentRepStartTime = timestamp;
-      
+
       // Clear recent history to avoid double counting
       _movementPhaseHistory.clear();
     }
@@ -378,14 +354,20 @@ class SPPBAnalysisService extends BaseDetectionService {
 
   void _updateClinicalMetrics(DateTime timestamp) {
     _testStartTime ??= timestamp;
-    _totalTestTime = timestamp.difference(_testStartTime!).inMilliseconds / 1000.0;
-    
+    _totalTestTime =
+        timestamp.difference(_testStartTime!).inMilliseconds / 1000.0;
+
     // Calculate movement smoothness based on hip angle variance
     if (_hipAngleHistory.length > 10) {
-      final recentAngles = _hipAngleHistory.skip(_hipAngleHistory.length - 10).toList();
+      final recentAngles =
+          _hipAngleHistory.skip(_hipAngleHistory.length - 10).toList();
       final mean = recentAngles.reduce((a, b) => a + b) / recentAngles.length;
-      final variance = recentAngles.map((angle) => (angle - mean) * (angle - mean)).reduce((a, b) => a + b) / recentAngles.length;
-      _movementSmoothness = 1.0 - (variance / 1000.0).clamp(0.0, 1.0); // Normalize to 0-1
+      final variance = recentAngles
+              .map((angle) => (angle - mean) * (angle - mean))
+              .reduce((a, b) => a + b) /
+          recentAngles.length;
+      _movementSmoothness =
+          1.0 - (variance / 1000.0).clamp(0.0, 1.0); // Normalize to 0-1
     }
   }
 
@@ -394,8 +376,8 @@ class SPPBAnalysisService extends BaseDetectionService {
     return SPPBTestMetrics(
       completedRepetitions: _completedRepetitions,
       totalTestTime: _totalTestTime,
-      averageRepetitionTime: _repetitionTimes.isNotEmpty 
-          ? _repetitionTimes.reduce((a, b) => a + b) / _repetitionTimes.length 
+      averageRepetitionTime: _repetitionTimes.isNotEmpty
+          ? _repetitionTimes.reduce((a, b) => a + b) / _repetitionTimes.length
           : 0.0,
       movementSmoothness: _movementSmoothness,
       repetitionTimes: List.from(_repetitionTimes),
@@ -473,12 +455,12 @@ class SPPBTestMetrics {
   /// Calculate SPPB score based on performance
   int calculateSPPBScore() {
     if (completedRepetitions < 1) return 0;
-    
+
     // SPPB scoring for chair stand test (simplified)
     if (totalTestTime <= 11.19) return 4; // Excellent
     if (totalTestTime <= 13.69) return 3; // Good
     if (totalTestTime <= 16.69) return 2; // Fair
-    if (totalTestTime <= 60.0) return 1;  // Poor
+    if (totalTestTime <= 60.0) return 1; // Poor
     return 0; // Unable to complete
   }
 }

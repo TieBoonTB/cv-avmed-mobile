@@ -1,12 +1,11 @@
 import '../controllers/base_test_controller.dart';
 import '../services/base_detection_service.dart';
-import '../services/isolate_detection_service.dart';
+import '../services/isolate_detection_classes.dart';
 import '../types/detection_types.dart';
 
 /// Object detection test controller using YOLOv5
 /// This test detects common objects and moves through different object types
 class ObjectDetectionTestController extends BaseTestController {
-  
   ObjectDetectionTestController({
     required super.isTrial,
     super.onTestUpdate,
@@ -54,12 +53,14 @@ class ObjectDetectionTestController extends BaseTestController {
   }
 
   @override
-  bool processDetectionResult(List<DetectionResult> detections, TestStep currentStep) {
+  bool processDetectionResult(
+      List<DetectionResult> detections, TestStep currentStep) {
     // Look for the target label in the detections
     for (final detection in detections) {
-      if (detection.label == currentStep.targetLabel && 
+      if (detection.label == currentStep.targetLabel &&
           detection.confidence >= currentStep.confidenceThreshold) {
-        print('Detected ${detection.label} with confidence ${detection.confidence.toStringAsFixed(2)}');
+        print(
+            'Detected ${detection.label} with confidence ${detection.confidence.toStringAsFixed(2)}');
         return true;
       }
     }
@@ -69,7 +70,8 @@ class ObjectDetectionTestController extends BaseTestController {
   @override
   Future<void> onStepStart(TestStep step) async {
     print('Object detection step started: ${step.label}');
-    print('Looking for: ${step.targetLabel} with confidence >= ${step.confidenceThreshold}');
+    print(
+        'Looking for: ${step.targetLabel} with confidence >= ${step.confidenceThreshold}');
     print('Point the camera at a ${step.targetLabel} object');
   }
 
@@ -81,17 +83,19 @@ class ObjectDetectionTestController extends BaseTestController {
       print('Failed to detect ${step.targetLabel} within time limit');
     }
   }
-  
+
   /// Get isolate-based YOLOv5 detection service for advanced operations
-  IsolateYOLOv5DetectionService get yoloService => detectionService as IsolateYOLOv5DetectionService;
-  
+  IsolateYOLOv5DetectionService get yoloService =>
+      detectionService as IsolateYOLOv5DetectionService;
+
   /// Get all current detections with their confidence scores
   List<DetectionResult> getAllDetections() {
     return detectionService.lastDetections;
   }
-  
+
   /// Get detections filtered by confidence
-  List<DetectionResult> getHighConfidenceDetections({double minConfidence = 0.5}) {
+  List<DetectionResult> getHighConfidenceDetections(
+      {double minConfidence = 0.5}) {
     return detectionService.lastDetections
         .where((detection) => detection.confidence >= minConfidence)
         .toList();

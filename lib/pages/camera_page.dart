@@ -28,25 +28,26 @@ class CameraPage extends StatefulWidget {
 
 class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   // Controllers
-  final CameraFeedController _cameraController = Get.put(CameraFeedController());
+  final CameraFeedController _cameraController =
+      Get.put(CameraFeedController());
   BaseTestController? _testController;
-  
+
   // Animation controllers for visual feedback
   late AnimationController _flashController;
   late AnimationController _progressController;
   Color _currentFlashColor = Colors.transparent;
-  late AdaptiveIntervalCalculator _intervalCalculator; 
-  
+  late AdaptiveIntervalCalculator _intervalCalculator;
+
   // Video player for instructions
   VideoPlayerController? _videoController;
   String _currentVideoPath = '';
   bool _isVideoInitialized = false;
-  
+
   // Frame processing
   Timer? _frameTimer;
   int _defaultFrameProcessingInterval = 1000;
   int _frameProcessingInterval = 1000; // Start with 200ms, will be adapted
-  
+
   // UI state
   bool _isInitialized = false;
   String _statusMessage = 'Initializing...';
@@ -64,7 +65,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 1000),
       vsync: this,
     );
-    
+
     _progressController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
@@ -77,33 +78,32 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       setState(() {
         _statusMessage = 'Initializing camera...';
       });
-      
+
       // Initialize camera
       await _cameraController.initializeCamera();
-      
+
       if (!mounted) return;
       setState(() {
         _statusMessage = 'Setting up test controller...';
       });
-      
+
       // Create appropriate test controller based on type
       _testController = _createTestController(widget.testType);
       await _testController!.initialize();
-      
+
       if (!mounted) return;
       setState(() {
         _statusMessage = 'Starting frame processing...';
       });
-      
+
       // Initialize instruction video
       _updateInstructionVideo();
-      
+
       if (!mounted) return;
       setState(() {
         _isInitialized = true;
         _statusMessage = 'Ready';
       });
-      
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -129,7 +129,8 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
 
   void _startFrameTimer() {
     _frameTimer?.cancel();
-    _frameTimer = Timer.periodic(Duration(milliseconds: _frameProcessingInterval), (timer) {
+    _frameTimer = Timer.periodic(
+        Duration(milliseconds: _frameProcessingInterval), (timer) {
       if (!mounted) {
         timer.cancel();
         return;
@@ -143,22 +144,26 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   }
 
   Future<void> _processCurrentFrame() async {
-    if (!mounted || _testController == null || !_testController!.detectionService.isInitialized) {
+    if (!mounted ||
+        _testController == null ||
+        !_testController!.detectionService.isInitialized) {
       return;
     }
-    
+
     final currentImage = _cameraController.currentImage;
     if (currentImage != null) {
       // Start timing the frame processing
       _intervalCalculator.startTiming();
-      
+
       try {
-        await _testController!.processCameraFrame(currentImage, isFrontCamera: _cameraController.isFrontCamera);
-        
+        await _testController!.processCameraFrame(currentImage,
+            isFrontCamera: _cameraController.isFrontCamera);
+
         // Stop timing and check if we should adjust interval
         _intervalCalculator.stopTiming();
-        
-        final newInterval = _intervalCalculator.calculateNewInterval(_frameProcessingInterval);
+
+        final newInterval =
+            _intervalCalculator.calculateNewInterval(_frameProcessingInterval);
         if (newInterval != _frameProcessingInterval) {
           _frameProcessingInterval = newInterval;
           _startFrameTimer(); // Restart with new interval
@@ -210,7 +215,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     if (currentStep == null || currentStep.videoPath == null) {
       return;
     }
-    
+
     final videoPath = currentStep.videoPath!;
     if (videoPath != _currentVideoPath) {
       await _initializeVideo(videoPath);
@@ -219,17 +224,17 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
 
   Future<void> _initializeVideo(String videoPath) async {
     if (videoPath.isEmpty || videoPath == _currentVideoPath) return;
-    
+
     try {
       // Dispose existing controller
       await _videoController?.dispose();
-      
+
       // Initialize new video
       _videoController = VideoPlayerController.asset(videoPath);
       await _videoController!.initialize();
       _videoController!.setLooping(true);
       _videoController!.play();
-      
+
       if (mounted) {
         setState(() {
           _currentVideoPath = videoPath;
@@ -264,7 +269,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
 
   void _showCompletionDialog() {
     final message = _getCompletionMessage();
-        
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -287,17 +292,17 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
             child: const Text('Run Again'),
           ),
           ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => LandingPage(),
-                  ),
-                );
-              },
-              child: const Text('Finish'),
-            ),
+            onPressed: () {
+              Navigator.of(context).pop();
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => LandingPage(),
+                ),
+              );
+            },
+            child: const Text('Finish'),
+          ),
         ],
       ),
     );
@@ -305,35 +310,40 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
 
   String _getCompletionMessage() {
     if (_testController == null) return 'Test completed.';
-    
+
     final testSteps = _testController!.testSteps;
     final successfulSteps = _testController!.successfulStepsCount;
     final completedSteps = _testController!.completedStepsCount;
     final totalSteps = testSteps.length;
     final overallProgress = _testController!.overallProgress;
-    
+
     String message;
     if (successfulSteps == totalSteps) {
       message = 'Excellent! All $totalSteps steps completed successfully!';
     } else if (successfulSteps > 0) {
-      message = 'Completed $successfulSteps out of $totalSteps steps successfully.';
+      message =
+          'Completed $successfulSteps out of $totalSteps steps successfully.';
       message += '\nOverall progress: ${(overallProgress * 100).toInt()}%';
     } else {
       message = 'Test completed. Please try again for better results.';
       message += '\nOverall progress: ${(overallProgress * 100).toInt()}%';
     }
-    
+
     // Add step details if some failed
     if (successfulSteps < totalSteps && completedSteps > 0) {
       message += '\n\nStep Details:';
       for (int i = 0; i < testSteps.length; i++) {
         final step = testSteps[i];
-        final status = step.isSuccess ? '✅' : step.isDone ? '⚠️' : '❌';
+        final status = step.isSuccess
+            ? '✅'
+            : step.isDone
+                ? '⚠️'
+                : '❌';
         final progress = (step.progress * 100).toInt();
         message += '\n$status Step ${i + 1}: ${step.label} ($progress%)';
       }
     }
-    
+
     return message;
   }
 
@@ -346,11 +356,12 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     if (_testController != null && _isInitialized) {
       _testController!.startTest();
     }
-    
+
     // Reset adaptive interval calculator for new test session
     _intervalCalculator.reset();
-    _frameProcessingInterval = _defaultFrameProcessingInterval; // Reset to starting interval
-    
+    _frameProcessingInterval =
+        _defaultFrameProcessingInterval; // Reset to starting interval
+
     _startFrameProcessing();
   }
 
@@ -363,17 +374,17 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   void dispose() {
     // Stop frame processing first to prevent any ongoing operations
     _stopFrameProcessing();
-    
+
     // Dispose animation controllers
     _flashController.dispose();
     _progressController.dispose();
-    
+
     // Dispose video controller
     _videoController?.dispose();
-    
+
     // Dispose test controller (this should also stop any ongoing detection)
     _testController?.dispose();
-    
+
     super.dispose();
   }
 
@@ -404,15 +415,16 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
         children: [
           // Camera feed
           _buildCameraFeed(),
-          
+
           // Flash overlay
           AnimatedBuilder(
             animation: _flashController,
             builder: (context, child) => Container(
-              color: _currentFlashColor.withValues(alpha: _flashController.value),
+              color:
+                  _currentFlashColor.withValues(alpha: _flashController.value),
             ),
           ),
-          
+
           // UI overlay
           _buildUIOverlay(),
         ],
@@ -427,8 +439,10 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
           return FittedBox(
             fit: BoxFit.cover,
             child: SizedBox(
-              width: _cameraController.cameraController!.value.previewSize!.height,
-              height: _cameraController.cameraController!.value.previewSize!.width,
+              width:
+                  _cameraController.cameraController!.value.previewSize!.height,
+              height:
+                  _cameraController.cameraController!.value.previewSize!.width,
               child: _cameraController.cameraController!.buildPreview(),
             ),
           );
@@ -447,13 +461,13 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
         children: [
           // Top bar
           _buildTopBar(),
-          
+
           // Middle spacer
           const Expanded(child: SizedBox()),
-          
+
           // Instruction video
           _buildInstructionVideo(),
-          
+
           // Bottom controls
           _buildBottomControls(),
         ],
@@ -471,7 +485,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
             onPressed: () => Navigator.of(context).pop(),
             icon: const Icon(Icons.arrow_back, color: Colors.white),
           ),
-          
+
           // Title and status
           Expanded(
             child: Column(
@@ -495,7 +509,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
               ],
             ),
           ),
-          
+
           // Camera switch button
           IconButton(
             onPressed: _cameraController.switchCamera,
@@ -512,10 +526,10 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
 
   String _getStatusText() {
     if (_testController == null) return 'Initializing...';
-    
+
     final testSteps = _testController!.testSteps;
     final currentStepIndex = _testController!.currentStepIndex;
-    
+
     if (!_testController!.hasTestStarted) {
       return 'Ready to start • ${testSteps.length} steps';
     } else if (_testController!.isCompleted) {
@@ -525,7 +539,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       final progress = (currentStep.progress * 100).toInt();
       return 'Step ${currentStepIndex + 1}/${testSteps.length} • $progress% • ${currentStep.label}';
     }
-    
+
     return 'Test in progress...';
   }
 
@@ -533,7 +547,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     if (!_isVideoInitialized || _videoController == null) {
       return const SizedBox();
     }
-    
+
     return Container(
       margin: const EdgeInsets.all(16),
       height: 120,
@@ -557,16 +571,15 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       child: Column(
         children: [
           // Progress indicator
-          if (_testController?.currentStep != null)
-            _buildProgressIndicator(),
-          
+          if (_testController?.currentStep != null) _buildProgressIndicator(),
+
           const SizedBox(height: 16),
-          
+
           // Detection info
           _buildDetectionInfo(),
-          
+
           const SizedBox(height: 16),
-          
+
           // Control buttons
           _buildControlButtons(),
         ],
@@ -576,7 +589,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
 
   Widget _buildProgressIndicator() {
     final currentStep = _testController!.currentStep!;
-    
+
     return Column(
       children: [
         Text(
@@ -593,10 +606,11 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
           builder: (context, child) => LinearProgressIndicator(
             value: _progressController.value,
             backgroundColor: Colors.white30,
-            valueColor: AlwaysStoppedAnimation<Color>(
-              currentStep.isActive ? Colors.blue : 
-              currentStep.isSuccess ? Colors.green : Colors.orange
-            ),
+            valueColor: AlwaysStoppedAnimation<Color>(currentStep.isActive
+                ? Colors.blue
+                : currentStep.isSuccess
+                    ? Colors.green
+                    : Colors.orange),
           ),
         ),
         const SizedBox(height: 4),
@@ -619,17 +633,19 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
 
   Widget _buildDetectionInfo() {
     if (_testController == null) return const SizedBox();
-    
+
     final detections = _testController!.detectionService.lastDetections;
     final currentStep = _testController!.currentStep;
-    
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.black54,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: detections.isNotEmpty ? Colors.green.withValues(alpha: 0.3) : Colors.white.withValues(alpha: 0.1),
+          color: detections.isNotEmpty
+              ? Colors.green.withValues(alpha: 0.3)
+              : Colors.white.withValues(alpha: 0.1),
           width: 1,
         ),
       ),
@@ -672,28 +688,37 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
             )
           else
             ...detections.take(3).map((detection) => Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Row(
-                children: [
-                  Icon(
-                    detection.label == currentStep?.targetLabel ? Icons.check_circle : Icons.circle_outlined,
-                    color: detection.label == currentStep?.targetLabel ? Colors.green : Colors.white70,
-                    size: 12,
-                  ),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      '${detection.label}: ${(detection.confidence * 100).toStringAsFixed(1)}%',
-                      style: TextStyle(
-                        color: detection.label == currentStep?.targetLabel ? Colors.green : Colors.white70,
-                        fontSize: 12,
-                        fontWeight: detection.label == currentStep?.targetLabel ? FontWeight.bold : FontWeight.normal,
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Row(
+                    children: [
+                      Icon(
+                        detection.label == currentStep?.targetLabel
+                            ? Icons.check_circle
+                            : Icons.circle_outlined,
+                        color: detection.label == currentStep?.targetLabel
+                            ? Colors.green
+                            : Colors.white70,
+                        size: 12,
                       ),
-                    ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          '${detection.label}: ${(detection.confidence * 100).toStringAsFixed(1)}%',
+                          style: TextStyle(
+                            color: detection.label == currentStep?.targetLabel
+                                ? Colors.green
+                                : Colors.white70,
+                            fontSize: 12,
+                            fontWeight:
+                                detection.label == currentStep?.targetLabel
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            )),
+                )),
         ],
       ),
     );
@@ -715,14 +740,16 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
               padding: const EdgeInsets.symmetric(vertical: 12),
             ),
             child: Text(
-              _testController?.isTestRunning == true ? 'Stop Test' : 'Start Test',
+              _testController?.isTestRunning == true
+                  ? 'Stop Test'
+                  : 'Start Test',
               style: const TextStyle(fontSize: 16),
             ),
           ),
         ),
-        
+
         const SizedBox(width: 12),
-        
+
         // Reset button
         ElevatedButton(
           onPressed: _resetTest,

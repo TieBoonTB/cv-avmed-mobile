@@ -105,9 +105,9 @@ class DeviceInfoPage extends StatelessWidget {
                     ],
                   ),
                 ),
-                
+
                 const SizedBox(height: 20),
-                
+
                 // Hardware info widget
                 const Expanded(
                   child: HardwareInfoWidget(),

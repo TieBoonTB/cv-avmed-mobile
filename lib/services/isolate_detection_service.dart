@@ -3,18 +3,20 @@ import 'base_detection_service.dart';
 import 'isolate_inference_service.dart';
 import '../models/base_model.dart';
 import '../types/detection_types.dart';
+import '../config/model_config.dart';
 
 /// Detection service that runs inference in background isolates
 /// This prevents UI freezing during heavy ML operations
 class IsolateDetectionService extends BaseDetectionService {
-  final String _modelType;
+  final ModelType _modelType;
   IsolateInferenceService? _isolateService;
   bool _isDisposing = false;
 
   IsolateDetectionService(this._modelType);
 
   @override
-  String get serviceType => 'Isolate-based $_modelType Detection';
+  String get serviceType =>
+      'Isolate-based ${ModelConfigurations.getModelInfo(_modelType).name} Detection';
 
   @override
   BaseModel? get currentModel => null; // Model runs in isolate
@@ -23,10 +25,10 @@ class IsolateDetectionService extends BaseDetectionService {
   Future<void> initialize() async {
     try {
       print('Initializing isolate detection service for $_modelType...');
-      
+
       _isolateService = IsolateInferenceService();
       await _isolateService!.initialize(_modelType);
-      
+
       setInitialized(true);
       print('Isolate detection service initialized successfully');
     } catch (e) {
@@ -57,7 +59,7 @@ class IsolateDetectionService extends BaseDetectionService {
 
       // Update cached results
       updateDetections(results);
-      
+
       return results;
     } catch (e) {
       print('Error processing frame in isolate: $e');
@@ -68,65 +70,14 @@ class IsolateDetectionService extends BaseDetectionService {
   @override
   void dispose() {
     if (_isDisposing) return;
-    
+
     _isDisposing = true;
     print('Disposing isolate detection service...');
-    
+
     _isolateService?.dispose();
     _isolateService = null;
-    
+
     super.dispose();
     print('Isolate detection service disposed');
   }
-}
-
-/// YOLOv5 detection service using isolates
-class IsolateYOLOv5DetectionService extends IsolateDetectionService {
-  IsolateYOLOv5DetectionService() : super('yolov5');
-}
-
-/// AVMED detection service using isolates
-class IsolateAVMedDetectionService extends IsolateDetectionService {
-  IsolateAVMedDetectionService() : super('avmed');
-}
-
-/// Chair detection service using isolates (extends YOLOv5 with filtering)
-class IsolateChairDetectionService extends IsolateYOLOv5DetectionService {
-  @override
-  String get serviceType => 'Isolate-based Chair Detection (YOLOv5 filtered)';
-
-  @override
-  Future<List<DetectionResult>> processFrame(
-    Uint8List frameData,
-    int imageHeight,
-    int imageWidth,
-  ) async {
-    // Get all YOLOv5 detections from the isolate
-    final allDetections = await super.processFrame(frameData, imageHeight, imageWidth);
-    
-    // Filter for chairs only at the service level
-    final chairDetections = allDetections.where((d) => d.label.toLowerCase() == 'chair').toList();
-    
-    print('Chair Detection: Found ${chairDetections.length} chairs out of ${allDetections.length} total detections');
-    
-    // Update cached results with filtered detections
-    updateDetections(chairDetections);
-    
-    return chairDetections;
-  }
-}
-
-/// Pose detection service using isolates
-class IsolatePoseDetectionService extends IsolateDetectionService {
-  IsolatePoseDetectionService() : super('pose');
-}
-
-/// MediaPipe pose detection service using isolates
-class IsolateMediaPipePoseDetectionService extends IsolateDetectionService {
-  IsolateMediaPipePoseDetectionService() : super('mediapipe');
-}
-
-/// Qualcomm pose detection service using isolates
-class IsolateQualcommPoseDetectionService extends IsolateDetectionService {
-  IsolateQualcommPoseDetectionService() : super('qualcomm');
 }

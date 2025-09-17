@@ -7,57 +7,55 @@ import '../models/base_model.dart';
 /// Different detection services can implement different logic for
 /// processing camera frames and managing detection streams
 abstract class BaseDetectionService {
-  final StreamController<List<DetectionResult>> _detectionController = 
+  final StreamController<List<DetectionResult>> _detectionController =
       StreamController<List<DetectionResult>>.broadcast();
-  
+
   bool _isInitialized = false;
   List<DetectionResult> _lastDetections = [];
 
   /// Stream of detection results
-  Stream<List<DetectionResult>> get detectionStream => _detectionController.stream;
-  
+  Stream<List<DetectionResult>> get detectionStream =>
+      _detectionController.stream;
+
   /// Check if service is initialized
   bool get isInitialized => _isInitialized;
-  
+
   /// Get the last detection results
   List<DetectionResult> get lastDetections => _lastDetections;
 
   /// Abstract methods to be implemented by subclasses
-  
+
   /// Initialize the detection service and its models
   Future<void> initialize();
-  
+
   /// Process a camera frame and return detection results
   Future<List<DetectionResult>> processFrame(
-    Uint8List frameData, 
-    int imageHeight, 
-    int imageWidth
-  );
-  
+      Uint8List frameData, int imageHeight, int imageWidth);
+
   /// Get the current model being used
   BaseModel? get currentModel;
-  
+
   /// Get information about the current model
   String get serviceType;
 
   // Common functionality provided by base class
-  
+
   /// Get current detections (returns cached results if available)
   Future<List<DetectionResult>> getCurrentDetections() async {
     return _lastDetections;
   }
-  
+
   /// Update detection results and notify listeners
   void updateDetections(List<DetectionResult> detections) {
     _lastDetections = detections;
     _detectionController.add(detections);
   }
-  
+
   /// Set initialized state
   void setInitialized(bool initialized) {
     _isInitialized = initialized;
   }
-  
+
   /// Dispose resources
   void dispose() {
     _detectionController.close();

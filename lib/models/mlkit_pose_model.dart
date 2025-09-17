@@ -34,9 +34,11 @@ class MLKitPoseModel extends BaseModel {
   }
 
   @override
-  Future<List<DetectionResult>> processFrame(Uint8List frameData, int imageHeight, int imageWidth) async {
+  Future<List<DetectionResult>> processFrame(
+      Uint8List frameData, int imageHeight, int imageWidth) async {
     if (!_isInitialized || _detector == null) {
-      throw StateError('MLKitPoseModel not initialized. Call initialize() first.');
+      throw StateError(
+          'MLKitPoseModel not initialized. Call initialize() first.');
     }
 
     try {
@@ -49,12 +51,13 @@ class MLKitPoseModel extends BaseModel {
 
       // Re-encode the rotation-corrected image as PNG
       final byteData = Uint8List.fromList(img.encodePng(image));
-      
+
       // Create temp file from corrected bytes (ML Kit needs file path for reliable operation)
       final tempDir = Directory.systemTemp;
-      final tempFile = File('${tempDir.path}/mlkit_corrected_${DateTime.now().microsecondsSinceEpoch}.png');
+      final tempFile = File(
+          '${tempDir.path}/mlkit_corrected_${DateTime.now().microsecondsSinceEpoch}.png');
       await tempFile.writeAsBytes(byteData);
-      
+
       try {
         // Use file path approach - more reliable than fromBytes
         final inputImage = InputImage.fromFilePath(tempFile.path);
@@ -66,12 +69,13 @@ class MLKitPoseModel extends BaseModel {
         final results = <DetectionResult>[];
         for (final pose in poses) {
           // Use the corrected image dimensions for landmark extraction
-          final landmarkMap = _extractLandmarks(pose, image.width, image.height);
+          final landmarkMap =
+              _extractLandmarks(pose, image.width, image.height);
           for (final entry in landmarkMap.entries) {
             final lm = entry.value;
             results.add(DetectionResult(
               label: entry.key,
-              confidence: 1.0, // ML Kit doesn't provide per-landmark confidence  
+              confidence: lm.confidence, // use computed per-landmark confidence
               box: DetectionBox(
                 x: lm.x.clamp(0.0, 1.0),
                 y: lm.y.clamp(0.0, 1.0),
@@ -100,7 +104,8 @@ class MLKitPoseModel extends BaseModel {
   }
 
   /// Extract normalized landmarks (0..1) keyed by MediaPipe names
-  Map<String, _NormalizedPoint> _extractLandmarks(Pose pose, int imageWidth, int imageHeight) {
+  Map<String, _NormalizedPoint> _extractLandmarks(
+      Pose pose, int imageWidth, int imageHeight) {
     // Map ML Kit PoseLandmark types to MediaPipe names used in ModelConfigurations
     final map = <String, _NormalizedPoint>{};
 
@@ -110,7 +115,11 @@ class MLKitPoseModel extends BaseModel {
         // ML Kit returns pixel coordinates - normalize by provided image size
         final nx = lm.x / imageWidth;
         final ny = lm.y / imageHeight;
-        map[name] = _NormalizedPoint(nx, ny);
+        // Compute binary confidence: point is either within the image (1.0) or not (0.0).
+        // This treats landmarks at the edge as "inside" if 0..1; anything outside is 0.
+        final inside = nx >= 0.0 && nx <= 1.0 && ny >= 0.0 && ny <= 1.0;
+        final rawConfidence = inside ? 1.0 : 0.0;
+        map[name] = _NormalizedPoint(nx, ny, rawConfidence);
       }
     }
 
@@ -164,5 +173,6 @@ class MLKitPoseModel extends BaseModel {
 class _NormalizedPoint {
   final double x;
   final double y;
-  _NormalizedPoint(this.x, this.y);
+  final double confidence;
+  _NormalizedPoint(this.x, this.y, [this.confidence = 1.0]);
 }

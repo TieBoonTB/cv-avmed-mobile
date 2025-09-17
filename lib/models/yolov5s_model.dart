@@ -22,28 +22,28 @@ class YOLOv5sModel extends BaseModel {
   Future<void> initialize() async {
     try {
       print('Loading YOLOv5s model...');
-      
+
       // Load the TFLite model
       _interpreter = await TFLiteUtils.loadModelFromAsset(modelInfo.modelPath);
-      
+
       // Print model info for debugging
       final inputTensors = _interpreter!.getInputTensors();
       final outputTensors = _interpreter!.getOutputTensors();
-      
+
       print('YOLOv5s model loaded successfully');
       print('Input tensors: ${inputTensors.length}');
       print('Output tensors: ${outputTensors.length}');
-      
+
       if (inputTensors.isNotEmpty) {
         print('Input shape: ${inputTensors.first.shape}');
         print('Input type: ${inputTensors.first.type}');
       }
-      
+
       if (outputTensors.isNotEmpty) {
         print('Output shape: ${outputTensors.first.shape}');
         print('Output type: ${outputTensors.first.type}');
       }
-      
+
       _isInitialized = true;
       print('YOLOv5s model initialized successfully');
     } catch (e) {
@@ -56,28 +56,28 @@ class YOLOv5sModel extends BaseModel {
   Future<void> initializeWithBytes(Uint8List modelBytes) async {
     try {
       print('[ISOLATE] Loading YOLOv5s model from bytes...');
-      
+
       // Create interpreter from bytes
       _interpreter = TFLiteUtils.createInterpreterFromBytes(modelBytes);
-      
+
       // Print model info for debugging
       final inputTensors = _interpreter!.getInputTensors();
       final outputTensors = _interpreter!.getOutputTensors();
-      
+
       print('[ISOLATE] YOLOv5s model loaded successfully');
       print('[ISOLATE] Input tensors: ${inputTensors.length}');
       print('[ISOLATE] Output tensors: ${outputTensors.length}');
-      
+
       if (inputTensors.isNotEmpty) {
         print('[ISOLATE] Input shape: ${inputTensors.first.shape}');
         print('[ISOLATE] Input type: ${inputTensors.first.type}');
       }
-      
+
       if (outputTensors.isNotEmpty) {
         print('[ISOLATE] Output shape: ${outputTensors.first.shape}');
         print('[ISOLATE] Output type: ${outputTensors.first.type}');
       }
-      
+
       _isInitialized = true;
       print('[ISOLATE] YOLOv5s model initialized successfully');
     } catch (e) {
@@ -87,7 +87,8 @@ class YOLOv5sModel extends BaseModel {
   }
 
   @override
-  Future<List<DetectionResult>> processFrame(Uint8List frameData, int imageHeight, int imageWidth) async {
+  Future<List<DetectionResult>> processFrame(
+      Uint8List frameData, int imageHeight, int imageWidth) async {
     if (!_isInitialized || _interpreter == null) {
       throw Exception('YOLOv5s model not initialized');
     }
@@ -110,12 +111,8 @@ class YOLOv5sModel extends BaseModel {
       // Convert image to input tensor
       var inputBytes = _imageToByteListFloat32(resizedImage);
       var input = TFLiteUtils.reshapeInput4D(
-        inputBytes, 
-        modelInfo.inputHeight, 
-        modelInfo.inputWidth, 
-        3
-      );
-      
+          inputBytes, modelInfo.inputHeight, modelInfo.inputWidth, 3);
+
       // Create output tensor (YOLOv5s outputs [1, 6300, 85] for 320x320 input)
       var output = TFLiteUtils.createOutput3D(6300, 85);
 
@@ -143,8 +140,9 @@ class YOLOv5sModel extends BaseModel {
 
   /// Convert image to input tensor format
   Float32List _imageToByteListFloat32(img.Image image) {
-    final convertedBytes = Float32List(1 * modelInfo.inputHeight * modelInfo.inputWidth * 3);
-    
+    final convertedBytes =
+        Float32List(1 * modelInfo.inputHeight * modelInfo.inputWidth * 3);
+
     int pixelIndex = 0;
     for (int i = 0; i < modelInfo.inputHeight; i++) {
       for (int j = 0; j < modelInfo.inputWidth; j++) {
@@ -154,7 +152,7 @@ class YOLOv5sModel extends BaseModel {
         convertedBytes[pixelIndex++] = pixel.b / 255.0;
       }
     }
-    
+
     return convertedBytes;
   }
 
@@ -166,82 +164,84 @@ class YOLOv5sModel extends BaseModel {
     double confidenceThreshold,
   ) {
     List<DetectionResult> detections = [];
-    
+
     // YOLOv5s output format: [batch, detections, (x, y, w, h, confidence, class_probs...)]
     final batch = output[0];
-    
+
     for (int i = 0; i < batch.length; i++) {
       final detection = batch[i];
-      
+
       if (detection.length < 85) continue;
-      
+
       final objectness = detection[4];
       if (objectness < confidenceThreshold) continue;
-      
+
       // Find the class with highest probability
       double maxClassProb = 0.0;
       int maxClassIndex = 0;
-      
+
       for (int j = 5; j < detection.length; j++) {
         if (detection[j] > maxClassProb) {
           maxClassProb = detection[j];
           maxClassIndex = j - 5;
         }
       }
-      
+
       final confidence = objectness * maxClassProb;
       if (confidence < confidenceThreshold) continue;
-      
+
       // Convert from model coordinates to image coordinates
       final centerX = detection[0] / modelInfo.inputWidth;
       final centerY = detection[1] / modelInfo.inputHeight;
       final width = detection[2] / modelInfo.inputWidth;
       final height = detection[3] / modelInfo.inputHeight;
-      
+
       // Convert to corner coordinates
       final x = centerX - width / 2;
       final y = centerY - height / 2;
-      
+
       // Get class label
       final label = maxClassIndex < modelInfo.supportedLabels.length
           ? modelInfo.supportedLabels[maxClassIndex]
           : 'unknown';
-      
+
       detections.add(DetectionResult(
         label: label,
         confidence: confidence,
         box: DetectionBox(x: x, y: y, width: width, height: height),
       ));
     }
-    
+
     // Apply Non-Maximum Suppression
     return _applyNMS(detections, 0.45);
   }
 
   /// Apply Non-Maximum Suppression to remove duplicate detections
-  List<DetectionResult> _applyNMS(List<DetectionResult> detections, double nmsThreshold) {
+  List<DetectionResult> _applyNMS(
+      List<DetectionResult> detections, double nmsThreshold) {
     if (detections.isEmpty) return detections;
-    
+
     // Sort by confidence in descending order
     detections.sort((a, b) => b.confidence.compareTo(a.confidence));
-    
+
     List<DetectionResult> filteredDetections = [];
-    
+
     for (int i = 0; i < detections.length; i++) {
       bool keep = true;
-      
+
       for (int j = 0; j < filteredDetections.length; j++) {
-        if (_calculateIoU(detections[i].box, filteredDetections[j].box) > nmsThreshold) {
+        if (_calculateIoU(detections[i].box, filteredDetections[j].box) >
+            nmsThreshold) {
           keep = false;
           break;
         }
       }
-      
+
       if (keep) {
         filteredDetections.add(detections[i]);
       }
     }
-    
+
     return filteredDetections;
   }
 
@@ -256,7 +256,8 @@ class YOLOv5sModel extends BaseModel {
       return 0.0;
     }
 
-    final intersectionArea = (intersectionX2 - intersectionX1) * (intersectionY2 - intersectionY1);
+    final intersectionArea =
+        (intersectionX2 - intersectionX1) * (intersectionY2 - intersectionY1);
     final box1Area = box1.width * box1.height;
     final box2Area = box2.width * box2.height;
     final unionArea = box1Area + box2Area - intersectionArea;

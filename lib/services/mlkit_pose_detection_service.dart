@@ -29,20 +29,122 @@ class MLKitPoseDetectionService extends BaseDetectionService {
   }
 
   @override
-  Future<List<DetectionResult>> processFrame(Uint8List frameData, int imageHeight, int imageWidth) async {
+  Future<List<DetectionResult>> processFrame(
+      Uint8List frameData, int imageHeight, int imageWidth) async {
     if (!isInitialized) {
-      throw StateError('MLKit Pose Detection Service not initialized. Call initialize() first.');
+      throw StateError(
+          'MLKit Pose Detection Service not initialized. Call initialize() first.');
     }
 
     try {
-      final results = await _model.processFrame(frameData, imageHeight, imageWidth);
+      final results =
+          await _model.processFrame(frameData, imageHeight, imageWidth);
       print('MLKit Pose Detection: Found ${results.length} landmarks');
       updateDetections(results);
       return results;
     } catch (e) {
       print('Error processing frame in MLKit Pose Detection Service: $e');
-      return [DetectionResult.createError('MLKit Pose Detection', e.toString())];
+      return [
+        DetectionResult.createError('MLKit Pose Detection', e.toString())
+      ];
     }
+  }
+
+  /// Extract key body landmarks from detection results
+  Map<String, DetectionBox> extractLandmarks(List<DetectionResult> detections) {
+    final landmarks = <String, DetectionBox>{};
+
+    // MediaPipe pose model provides 33 landmarks, we focus on key ones for chair stand test
+    for (final detection in detections) {
+      if ([
+        'left_hip',
+        'right_hip',
+        'left_knee',
+        'right_knee',
+        'left_shoulder',
+        'right_shoulder',
+        'left_ankle',
+        'right_ankle'
+      ].contains(detection.label)) {
+        landmarks[detection.label] = detection.box;
+      }
+    }
+
+    return landmarks;
+  }
+
+  /// Check if person is properly positioned for test
+  bool validatePersonPosition(List<DetectionResult> detections) {
+    final landmarks = extractLandmarks(detections);
+
+    // Ensure key landmarks are detected for chair stand test
+    final requiredLandmarks = [
+      'left_hip',
+      'right_hip',
+      'left_knee',
+      'right_knee'
+    ];
+    final missingLandmarks = <String>[];
+
+    for (final landmark in requiredLandmarks) {
+      if (!landmarks.containsKey(landmark)) {
+        missingLandmarks.add(landmark);
+      }
+    }
+
+    if (missingLandmarks.isNotEmpty) {
+      print(
+          'Person validation failed: Missing landmarks: ${missingLandmarks.join(', ')}');
+      return false;
+    }
+
+    // Additional validation: check if person is facing the camera
+    final hasShoulders = landmarks.containsKey('left_shoulder') &&
+        landmarks.containsKey('right_shoulder');
+
+    print(
+        'Person validation: Found ${landmarks.length} landmarks, has shoulders: $hasShoulders');
+    return hasShoulders;
+  }
+
+  /// Calculate hip angle from MediaPipe landmarks
+  double? calculateHipAngle(Map<String, DetectionBox> landmarks) {
+    final leftHip = landmarks['left_hip'];
+    final rightHip = landmarks['right_hip'];
+    final leftKnee = landmarks['left_knee'];
+    final rightKnee = landmarks['right_knee'];
+    final leftShoulder = landmarks['left_shoulder'];
+    final rightShoulder = landmarks['right_shoulder'];
+
+    if (leftHip == null ||
+        rightHip == null ||
+        leftKnee == null ||
+        rightKnee == null ||
+        leftShoulder == null ||
+        rightShoulder == null) {
+      return null;
+    }
+
+    // Calculate average positions for more stable measurements
+    final avgHipY = (leftHip.y + rightHip.y) / 2;
+    final avgKneeY = (leftKnee.y + rightKnee.y) / 2;
+    final avgShoulderY = (leftShoulder.y + rightShoulder.y) / 2;
+
+    // Calculate hip angle based on relative positions
+    // When sitting: hip is above knee, angle is smaller
+    // When standing: hip and knee are more aligned, angle is larger
+    final hipKneeDistance = (avgKneeY - avgHipY).abs();
+    final shoulderHipDistance = (avgHipY - avgShoulderY).abs();
+
+    if (shoulderHipDistance == 0) return null;
+
+    final ratio = hipKneeDistance / shoulderHipDistance;
+
+    // Map ratio to realistic hip angle (90-180 degrees)
+    // This is a simplified calculation - in practice, you'd use proper vector math
+    final angle = 90.0 + (ratio * 90.0).clamp(0.0, 90.0);
+
+    return angle;
   }
 
   @override

@@ -1,13 +1,12 @@
 import '../controllers/base_test_controller.dart';
 import '../services/base_detection_service.dart';
-import '../services/isolate_detection_service.dart';
+import '../services/isolate_detection_classes.dart';
 import '../types/detection_types.dart';
 
 /// AVMED Test Controller for medication adherence monitoring
 /// Implements the medication adherence test pipeline using dual model detection
 /// Based on the AVMED pipeline plan for on-device inference
 class AVMedTestController extends BaseTestController {
-  
   AVMedTestController({
     required super.isTrial,
     super.onTestUpdate,
@@ -28,7 +27,7 @@ class AVMedTestController extends BaseTestController {
         targetLabel: StepConstants.pill,
         videoPath: 'assets/instructions/holding-pill.mp4',
         targetTime: 2.0, // Time to hold pill detectably
-        maxTime: 10.0,   // Maximum time allowed for step
+        maxTime: 10.0, // Maximum time allowed for step
         confidenceThreshold: 0.7, // AVMED main detection confidence
       ),
       TestStep(
@@ -67,29 +66,30 @@ class AVMedTestController extends BaseTestController {
   }
 
   @override
-  bool processDetectionResult(List<DetectionResult> detections, TestStep currentStep) {
+  bool processDetectionResult(
+      List<DetectionResult> detections, TestStep currentStep) {
     // AVMED-specific detection processing logic
-    
+
     final targetLabel = currentStep.targetLabel.toLowerCase();
     final threshold = currentStep.confidenceThreshold;
-    
+
     // Handle different AVMED detection scenarios
     switch (targetLabel) {
       case 'pill':
         return _detectPill(detections, threshold);
-      
+
       case 'pill on tongue':
         return _detectPillOnTongue(detections, threshold);
-      
+
       case 'no pill on tongue':
         return _detectNoPillOnTongue(detections, threshold);
-      
+
       case 'drink water':
         return _detectDrinkingAction(detections, threshold);
-      
+
       case 'no pill under tongue':
         return _detectNoPillUnderTongue(detections, threshold);
-      
+
       default:
         return _detectGenericTarget(detections, targetLabel, threshold);
     }
@@ -99,7 +99,7 @@ class AVMedTestController extends BaseTestController {
   bool _detectPill(List<DetectionResult> detections, double threshold) {
     // Look for pill detection with sufficient confidence
     for (final detection in detections) {
-      if (detection.label.toLowerCase() == 'pill' && 
+      if (detection.label.toLowerCase() == 'pill' &&
           detection.confidence >= threshold) {
         return true;
       }
@@ -112,89 +112,94 @@ class AVMedTestController extends BaseTestController {
   bool _detectPillOnTongue(List<DetectionResult> detections, double threshold) {
     bool hasPill = false;
     bool hasMouthOrTongue = false;
-    
+
     for (final detection in detections) {
       final label = detection.label.toLowerCase();
       final confidence = detection.confidence;
-      
+
       if (label == 'pill' && confidence >= threshold) {
         hasPill = true;
-      } else if ((label == 'mouth' || label == 'tongue') && confidence >= threshold) {
+      } else if ((label == 'mouth' || label == 'tongue') &&
+          confidence >= threshold) {
         hasMouthOrTongue = true;
       }
     }
-    
+
     // Both pill and mouth/tongue should be detected
     return hasPill && hasMouthOrTongue;
   }
 
   /// Detect absence of pill on tongue
   /// Should detect mouth/tongue but no pill
-  bool _detectNoPillOnTongue(List<DetectionResult> detections, double threshold) {
+  bool _detectNoPillOnTongue(
+      List<DetectionResult> detections, double threshold) {
     bool hasMouthOrTongue = false;
     bool hasPill = false;
-    
+
     for (final detection in detections) {
       final label = detection.label.toLowerCase();
       final confidence = detection.confidence;
-      
+
       if ((label == 'mouth' || label == 'tongue') && confidence >= threshold) {
         hasMouthOrTongue = true;
       } else if (label == 'pill' && confidence >= threshold) {
         hasPill = true;
       }
     }
-    
+
     // Should detect mouth/tongue but no pill
     return hasMouthOrTongue && !hasPill;
   }
 
   /// Detect drinking action
   /// Look for water/cup and mouth interaction
-  bool _detectDrinkingAction(List<DetectionResult> detections, double threshold) {
+  bool _detectDrinkingAction(
+      List<DetectionResult> detections, double threshold) {
     bool hasWaterOrCup = false;
     bool hasMouth = false;
-    
+
     for (final detection in detections) {
       final label = detection.label.toLowerCase();
       final confidence = detection.confidence;
-      
+
       if ((label == 'water' || label == 'cup') && confidence >= threshold) {
         hasWaterOrCup = true;
       } else if (label == 'mouth' && confidence >= threshold) {
         hasMouth = true;
       }
     }
-    
+
     // Drinking requires both water/cup and mouth
     return hasWaterOrCup && hasMouth;
   }
 
   /// Detect no pill under tongue
   /// Similar to no pill on tongue but specifically under tongue
-  bool _detectNoPillUnderTongue(List<DetectionResult> detections, double threshold) {
+  bool _detectNoPillUnderTongue(
+      List<DetectionResult> detections, double threshold) {
     bool hasMouthOrTongue = false;
     bool hasPill = false;
-    
+
     for (final detection in detections) {
       final label = detection.label.toLowerCase();
       final confidence = detection.confidence;
-      
+
       if ((label == 'mouth' || label == 'tongue') && confidence >= threshold) {
         hasMouthOrTongue = true;
       } else if (label == 'pill' && confidence >= threshold) {
         hasPill = true;
       }
     }
-    
+
     // Should detect mouth/tongue but no pill
     return hasMouthOrTongue && !hasPill;
   }
 
   /// Generic target detection for fallback
-  bool _detectGenericTarget(List<DetectionResult> detections, String targetLabel, double threshold) {
+  bool _detectGenericTarget(
+      List<DetectionResult> detections, String targetLabel, double threshold) {
     for (final detection in detections) {
-      if (detection.label.toLowerCase() == targetLabel && 
+      if (detection.label.toLowerCase() == targetLabel &&
           detection.confidence >= threshold) {
         return true;
       }
@@ -205,7 +210,7 @@ class AVMedTestController extends BaseTestController {
   @override
   Future<void> onStepStart(TestStep step) async {
     print('AVMED Step started: ${step.label}');
-    
+
     // AVMED-specific step initialization
     if (detectionService is IsolateAVMedDetectionService) {
       print('Using isolate-based AVMED detection service');
@@ -215,17 +220,19 @@ class AVMedTestController extends BaseTestController {
   @override
   Future<void> onStepEnd(TestStep step, bool isSuccess) async {
     print('AVMED Step completed: ${step.label}, Success: $isSuccess');
-    
+
     // Log detailed step completion information
     if (detectionService is IsolateAVMedDetectionService) {
       print('Isolate-based AVMED detection completed for step');
     }
-    
+
     // Additional logging for medication adherence compliance
     if (isSuccess) {
-      print('✅ Medication adherence step "${step.label}" completed successfully');
+      print(
+          '✅ Medication adherence step "${step.label}" completed successfully');
     } else {
-      print('❌ Medication adherence step "${step.label}" failed - may require assistance');
+      print(
+          '❌ Medication adherence step "${step.label}" failed - may require assistance');
     }
   }
 
@@ -238,7 +245,7 @@ class AVMedTestController extends BaseTestController {
       'successful_steps': testSteps.where((step) => step.isSuccess).length,
       'step_details': [],
     };
-    
+
     for (int i = 0; i < testSteps.length; i++) {
       final step = testSteps[i];
       results['step_details'].add({
@@ -252,12 +259,13 @@ class AVMedTestController extends BaseTestController {
         'confidence_threshold': step.confidenceThreshold,
       });
     }
-    
+
     // Calculate adherence compliance percentage
     final successfulSteps = results['successful_steps'] as int;
     final totalSteps = results['total_steps'] as int;
-    results['adherence_compliance'] = totalSteps > 0 ? (successfulSteps / totalSteps) * 100 : 0.0;
-    
+    results['adherence_compliance'] =
+        totalSteps > 0 ? (successfulSteps / totalSteps) * 100 : 0.0;
+
     return results;
   }
 }
