@@ -190,11 +190,23 @@ class YOLOv5sModel extends BaseModel {
       final confidence = objectness * maxClassProb;
       if (confidence < confidenceThreshold) continue;
 
-      // Convert from model coordinates to image coordinates
-      final centerX = detection[0] / modelInfo.inputWidth;
-      final centerY = detection[1] / modelInfo.inputHeight;
-      final width = detection[2] / modelInfo.inputWidth;
-      final height = detection[3] / modelInfo.inputHeight;
+      // Raw model outputs for center x,y and width,height
+      final rawCx = detection[0];
+      final rawCy = detection[1];
+      final rawW = detection[2];
+      final rawH = detection[3];
+
+      // Determine whether the model outputs are normalized (0..1) or in pixel units
+      final outputsAreNormalized =
+          rawCx <= 1.0 && rawCy <= 1.0 && rawW <= 1.0 && rawH <= 1.0;
+
+      // Convert from model coordinates to normalized image coordinates (0..1)
+      final centerX =
+          outputsAreNormalized ? rawCx : rawCx / modelInfo.inputWidth;
+      final centerY =
+          outputsAreNormalized ? rawCy : rawCy / modelInfo.inputHeight;
+      final width = outputsAreNormalized ? rawW : rawW / modelInfo.inputWidth;
+      final height = outputsAreNormalized ? rawH : rawH / modelInfo.inputHeight;
 
       // Convert to corner coordinates
       final x = centerX - width / 2;

@@ -14,12 +14,12 @@ abstract class BaseTestController {
   final VoidCallback? onTestUpdate;
   final VoidCallback? onTestComplete;
   final Function(bool isSuccess)? onStepComplete;
-  
+
   late BaseDetectionService _detectionService;
-  
+
   // Cached test steps to preserve state during test execution
   List<TestStep>? _cachedTestSteps;
-  
+
   // Test state
   bool _hasTestStarted = false;
   bool _isTestRunning = false;
@@ -36,40 +36,43 @@ abstract class BaseTestController {
   });
 
   // Abstract methods that must be implemented by subclasses
-  
+
   /// Get the detection service specific to this test type
   BaseDetectionService createDetectionService();
-  
+
   /// Get the list of test steps for this specific test
   List<TestStep> createTestSteps();
-  
+
   /// Process detection results for the current step
   /// Returns true if the detection is valid for the current step
-  bool processDetectionResult(List<DetectionResult> detections, TestStep currentStep);
-  
+  bool processDetectionResult(
+      List<DetectionResult> detections, TestStep currentStep);
+
   /// Optional: Custom logic when a step starts
   Future<void> onStepStart(TestStep step) async {}
-  
+
   /// Optional: Custom logic when a step completes
   Future<void> onStepEnd(TestStep step, bool isSuccess) async {}
 
   // Common functionality provided by base class
-  
+
   /// Initialize the test controller and its detection service
   Future<void> initialize() async {
     _detectionService = createDetectionService();
     await _detectionService.initialize();
   }
-  
+
   /// Process a camera image through the detection service
   /// This method should be called whenever a new camera frame is available
-  Future<void> processCameraFrame(CameraImage cameraImage, {bool isFrontCamera = false}) async {
+  Future<void> processCameraFrame(CameraImage cameraImage,
+      {bool isFrontCamera = false}) async {
     if (!_detectionService.isInitialized) return;
-    
+
     try {
       // Convert camera image to bytes
-      final imageBytes = CameraImageUtils.convertCameraImageToBytes(cameraImage, isFrontCamera: isFrontCamera);
-      
+      final imageBytes = CameraImageUtils.convertCameraImageToBytes(cameraImage,
+          isFrontCamera: isFrontCamera);
+
       if (imageBytes.isNotEmpty) {
         // Process frame through the detection service
         await _detectionService.processFrame(
@@ -82,28 +85,31 @@ abstract class BaseTestController {
       print('Error processing camera frame: $e');
     }
   }
-  
+
   /// Get the current detection service
   BaseDetectionService get detectionService => _detectionService;
-  
+
   /// Test state getters
   bool get hasTestStarted => _hasTestStarted;
   bool get isTestRunning => _isTestRunning;
   bool get isCompleted => _isCompleted;
   int get currentStepIndex => _currentStepIndex;
-  
+
   /// Get completion statistics
   int get completedStepsCount => testSteps.where((step) => step.isDone).length;
-  int get successfulStepsCount => testSteps.where((step) => step.isSuccess).length;
-  double get overallProgress => testSteps.isEmpty ? 0.0 : 
-    testSteps.map((step) => step.progress).reduce((a, b) => a + b) / testSteps.length;
-  
+  int get successfulStepsCount =>
+      testSteps.where((step) => step.isSuccess).length;
+  double get overallProgress => testSteps.isEmpty
+      ? 0.0
+      : testSteps.map((step) => step.progress).reduce((a, b) => a + b) /
+          testSteps.length;
+
   /// Get all test steps
   List<TestStep> get testSteps {
     _cachedTestSteps ??= createTestSteps();
     return _cachedTestSteps!;
   }
-  
+
   /// Get current active step
   TestStep? get currentStep {
     final steps = testSteps;
@@ -116,16 +122,16 @@ abstract class BaseTestController {
   /// Start the test sequence
   void startTest() {
     if (_hasTestStarted) return;
-    
+
     _hasTestStarted = true;
     _isTestRunning = true;
     _currentStepIndex = 0;
-    
+
     final steps = testSteps;
     if (steps.isNotEmpty) {
       steps[0].isActive = true;
     }
-    
+
     _safeCallback(onTestUpdate);
     _runTestSequence();
   }
@@ -133,41 +139,41 @@ abstract class BaseTestController {
   /// Run the complete test sequence
   Future<void> _runTestSequence() async {
     final steps = testSteps;
-    
+
     for (int i = 0; i < steps.length; i++) {
       if (!_isTestRunning) break;
-      
+
       _currentStepIndex = i;
       final step = steps[i];
-      
+
       // Reset previous step
       if (i > 0) {
         steps[i - 1].isActive = false;
       }
-      
+
       // Activate current step
       step.isActive = true;
       _safeCallback(onTestUpdate);
-      
+
       // Custom step start logic
       await onStepStart(step);
-      
+
       // Run step with detection logic
       bool isSuccess = await _runStepWithDetection(step);
-      
+
       if (_isTestRunning) {
         step.isActive = false;
         step.isDone = true;
         step.isSuccess = isSuccess;
-        
+
         // Custom step end logic
         await onStepEnd(step, isSuccess);
-        
+
         _safeCallback(onTestUpdate);
         _safeStepCallback(onStepComplete, isSuccess);
       }
     }
-    
+
     if (_isTestRunning) {
       await endTest();
     }
@@ -176,28 +182,31 @@ abstract class BaseTestController {
   /// Run a single step with detection logic
   Future<bool> _runStepWithDetection(TestStep step) async {
     step.detectedFrameCount = 0;
-    
+
     // Start step timer
     final stepStartTime = DateTime.now();
     final maxDuration = Duration(milliseconds: (step.maxTime * 1000).round());
-    
+
     // Set up detection timer with frame skipping (method 2)
     Timer? detectionTimer;
     bool stepCompleted = false;
-    
+
     try {
       // Create timer that fires every 500ms, but skips if processing
-      detectionTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) async {
+      detectionTimer =
+          Timer.periodic(const Duration(milliseconds: 500), (timer) async {
         // Check if step should continue
-        if (!_isTestRunning || stepCompleted || DateTime.now().difference(stepStartTime) >= maxDuration) {
+        if (!_isTestRunning ||
+            stepCompleted ||
+            DateTime.now().difference(stepStartTime) >= maxDuration) {
           timer.cancel();
           return;
         }
-        
+
         // Skip this detection cycle if previous one is still processing
         if (!_isProcessing) {
           await _processDetectionForStep(step);
-          
+
           // Check if target is reached after processing
           if (step.isTargetReached) {
             stepCompleted = true;
@@ -205,37 +214,39 @@ abstract class BaseTestController {
           }
         }
       });
-      
+
       // Wait for either completion or timeout
-      while (_isTestRunning && !stepCompleted && DateTime.now().difference(stepStartTime) < maxDuration) {
+      while (_isTestRunning &&
+          !stepCompleted &&
+          DateTime.now().difference(stepStartTime) < maxDuration) {
         await Future.delayed(const Duration(milliseconds: 100));
       }
-      
     } finally {
       detectionTimer?.cancel();
     }
-    
+
     // Consider a step successful if it reached the target OR made significant progress (75%+)
     const double minimumProgressForSuccess = 0.75;
     final hasSignificantProgress = step.progress >= minimumProgressForSuccess;
-    
+
     return stepCompleted || hasSignificantProgress;
   }
-  
+
   /// Process detection for a single step (with frame skipping protection)
   Future<void> _processDetectionForStep(TestStep step) async {
     if (_isProcessing) return;
     _isProcessing = true;
-    
+
     try {
       List<DetectionResult> detections;
-      
+
       if (_detectionService.serviceType.contains('Mock')) {
         // For mock detection service, generate fresh detections each time
         try {
           // Create dummy frame data for mock processing
           final dummyFrameData = Uint8List(100); // Mock frame data
-          detections = await _detectionService.processFrame(dummyFrameData, 480, 640);
+          detections =
+              await _detectionService.processFrame(dummyFrameData, 480, 640);
         } catch (e) {
           print('Error processing mock frame: $e');
           detections = [];
@@ -244,20 +255,20 @@ abstract class BaseTestController {
         // For real detection services, use cached results from camera frame processing
         // This ensures we don't interfere with the camera frame processing pipeline
         detections = await _detectionService.getCurrentDetections();
-        
-        // If cache is empty and this is a real detection service, 
+
+        // If cache is empty and this is a real detection service,
         // it might indicate camera frame processing isn't working
         if (detections.isEmpty) {
-          print('Warning: No detections in cache for ${_detectionService.serviceType}');
+          print(
+              'Warning: No detections in cache for ${_detectionService.serviceType}');
         }
       }
-      
+
       // Process detections using subclass-specific logic
       if (processDetectionResult(detections, step)) {
         step.detectedFrameCount++;
         _safeCallback(onTestUpdate);
       }
-      
     } catch (e) {
       print('Error processing detection for step: $e');
     } finally {
@@ -269,7 +280,7 @@ abstract class BaseTestController {
   Future<void> endTest() async {
     _isTestRunning = false;
     _isCompleted = true;
-    
+
     _safeCallback(onTestUpdate);
     _safeCallback(onTestComplete);
   }
@@ -280,18 +291,18 @@ abstract class BaseTestController {
     _isTestRunning = false;
     _isCompleted = false;
     _currentStepIndex = 0;
-    
+
     // Clear cached test steps to force recreation on next access
     _cachedTestSteps?.clear();
     _cachedTestSteps = null;
-    
+
     for (var step in testSteps) {
       step.isActive = false;
       step.isDone = false;
       step.isSuccess = false;
       step.detectedFrameCount = 0;
     }
-    
+
     _safeCallback(onTestUpdate);
   }
 
@@ -306,14 +317,14 @@ abstract class BaseTestController {
     _isDisposed = true;
     _detectionService.dispose();
   }
-  
+
   /// Safe callback invocation that checks disposal state
   void _safeCallback(VoidCallback? callback) {
     if (!_isDisposed && callback != null) {
       callback();
     }
   }
-  
+
   /// Safe step complete callback invocation
   void _safeStepCallback(Function(bool)? callback, bool isSuccess) {
     if (!_isDisposed && callback != null) {
@@ -334,7 +345,7 @@ class TestStep {
   bool isActive;
   bool isDone;
   bool isSuccess;
-  
+
   // Detection progress
   int detectedFrameCount = 0;
   int targetFrameCount = 0;
@@ -355,8 +366,9 @@ class TestStep {
     // This matches the Timer.periodic interval in _runStepWithDetection
     targetFrameCount = (targetTime * 3).round();
   }
-  
-  double get progress => targetFrameCount > 0 ? detectedFrameCount / targetFrameCount : 0.0;
+
+  double get progress =>
+      targetFrameCount > 0 ? detectedFrameCount / targetFrameCount : 0.0;
   bool get isTargetReached => detectedFrameCount >= targetFrameCount;
 }
 
@@ -370,14 +382,14 @@ class StepConstants {
   static const String pleaseUseTransparentCup = 'please use transparent cup';
   static const String mouthCovered = 'mouth covered';
   static const String noPillUnderTongue = 'no pill under tongue';
-  
-  // AVMED Component Labels  
+
+  // AVMED Component Labels
   static const String mouth = 'mouth';
   static const String hand = 'hand';
   static const String face = 'face';
   static const String tongue = 'tongue';
   static const String water = 'water';
-  
+
   // YOLOv5 object detection labels
   static const String person = 'person';
   static const String bottle = 'bottle';

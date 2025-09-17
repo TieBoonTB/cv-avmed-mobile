@@ -8,6 +8,7 @@ import '../services/base_detection_service.dart';
 import '../utils/camera_image_utils.dart';
 import '../types/detection_types.dart';
 import '../widgets/pose_mlkit_painter.dart';
+import '../widgets/detection_box_painter.dart';
 
 enum DetectionModel { yolov5, avmed, chairDetection, poseDetection }
 
@@ -323,23 +324,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
         _lastDetections = results;
         _processedFrames++;
       });
-
-      // Print detection results to console
-      if (results.isNotEmpty) {
-        print('  Detected ${results.length} objects:');
-        for (final result in results) {
-          if (result.isError) {
-            print('    ❌ ${result.label}');
-          } else if (result.isWarning) {
-            print('    ⚠️  ${result.label}');
-          } else {
-            print(
-                '    ${result.label}: ${(result.confidence * 100).toStringAsFixed(1)}%');
-          }
-        }
-      } else {
-        print('  No objects detected');
-      }
     } catch (e) {
       print('Error processing camera image: $e');
     } finally {
@@ -502,14 +486,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
             ),
           ),
 
-          // Detection results overlay
-          Positioned(
-            bottom: 200,
-            left: 20,
-            right: 20,
-            child: _buildDetectionResults(),
-          ),
-
           // Control buttons
           Positioned(
             bottom: 50,
@@ -595,6 +571,43 @@ class _CameraTestPageState extends State<CameraTestPage> {
                   minConfidence: 0.3,
                 ),
               ),
+            ),
+          ),
+
+        // For other detection models that output bounding boxes, overlay box painter
+        if (_currentModel != DetectionModel.poseDetection &&
+            _lastDetections.isNotEmpty)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: LayoutBuilder(builder: (context, constraints) {
+                // Determine source image size: prefer previewSize from camera controller if available
+                Size imageSize = Size(1, 1);
+                try {
+                  final camCtrl = _cameraController.cameraController;
+                  if (camCtrl != null &&
+                      camCtrl.value.isInitialized &&
+                      camCtrl.value.previewSize != null) {
+                    // previewSize uses width/height relative to sensor orientation
+                    final preview = camCtrl.value.previewSize!;
+                    imageSize = Size(
+                        preview.width.toDouble(), preview.height.toDouble());
+                  } else if (_cameraController.currentImage != null) {
+                    final img = _cameraController.currentImage!;
+                    imageSize =
+                        Size(img.width.toDouble(), img.height.toDouble());
+                  }
+                } catch (_) {}
+
+                return CustomPaint(
+                  size: Size(constraints.maxWidth, constraints.maxHeight),
+                  painter: DetectionBoxPainter(
+                    detections: _lastDetections,
+                    imageSize: imageSize,
+                    minConfidence: 0.2,
+                    flipHorizontally: _cameraController.isFrontCamera,
+                  ),
+                );
+              }),
             ),
           ),
       ],

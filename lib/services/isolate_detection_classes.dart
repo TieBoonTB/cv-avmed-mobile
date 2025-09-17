@@ -58,19 +58,25 @@ class IsolateChairDetectionService extends IsolateDetectionService {
       return false;
     }
 
+    // Debug: list all candidate chairs found
+    print('Chair validation: found ${chairs.length} candidate(s)');
+    for (var i = 0; i < chairs.length; i++) {
+      final c = chairs[i];
+      print(
+          '  candidate[$i]: confidence=${c.confidence.toStringAsFixed(3)}, box=${c.box}');
+    }
+
     // Check chair is in center area and properly sized
     final chair = chairs.first;
     final centerX = chair.box.x + chair.box.width / 2;
     final centerY = chair.box.y + chair.box.height / 2;
 
-    final isValidPosition = centerX > 0.3 &&
-        centerX < 0.7 && // Centered horizontally
-        centerY > 0.4 &&
-        centerY < 0.8 && // Good vertical position
-        chair.confidence > 0.7; // Good confidence (lowered from 0.8)
+    // Individual checks for easier debugging
+    final bool inHorizontal = centerX > 0.3 && centerX < 0.7;
+    final bool inVertical = centerY > 0.4 && centerY < 0.8;
+    final bool hasConfidence = chair.confidence > 0.7;
 
-    print(
-        'Chair validation: position($centerX, $centerY), confidence(${chair.confidence}), valid: $isValidPosition');
+    final isValidPosition = inHorizontal && inVertical && hasConfidence;
     return isValidPosition;
   }
 }

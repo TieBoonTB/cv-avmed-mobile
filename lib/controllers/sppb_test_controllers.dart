@@ -1,3 +1,5 @@
+import 'package:camera/camera.dart';
+import '../utils/camera_image_utils.dart';
 import '../services/isolate_detection_classes.dart';
 import '../services/mlkit_pose_detection_service.dart';
 import '../controllers/base_test_controller.dart';
@@ -33,6 +35,86 @@ class ChairStandTestController extends BaseTestController {
     _chairService = IsolateChairDetectionService();
     _poseService = MLKitPoseDetectionService();
     _analysisService = SPPBAnalysisService();
+  }
+
+  @override
+  Future<void> processCameraFrame(CameraImage cameraImage,
+      {bool isFrontCamera = false}) async {
+    // Route frames to the appropriate model/service based on the current phase
+    try {
+      print('SPPB: processCameraFrame called for phase $_currentPhase');
+
+      List<DetectionResult> results = [];
+
+      switch (_currentPhase) {
+        case SPPBTestPhase.setup:
+        case SPPBTestPhase.detectChair:
+          // Use chair detector for setup and chair detection phases
+          results = await _runChairDetectionOnFrame(cameraImage,
+              isFrontCamera: isFrontCamera);
+          break;
+        case SPPBTestPhase.detectPerson:
+        case SPPBTestPhase.chairStandTest:
+          // Use pose detector for person/stand test phases
+          results = await _runPoseDetectionOnFrame(cameraImage,
+              isFrontCamera: isFrontCamera);
+          break;
+        case SPPBTestPhase.results:
+          // Do not process frames in results phase; keep last detections
+          break;
+      }
+
+      // Ensure primary detection service cache is updated so step processing
+      // can read consistent results via getCurrentDetections()
+      if (results.isNotEmpty) {
+        // Update the main detection service cache so BaseTestController
+        // step logic can consume the latest detections regardless of which
+        // service produced them.
+        detectionService.updateDetections(results);
+      }
+    } catch (e) {
+      print('SPPB: Error routing camera frame: $e');
+    }
+  }
+
+  // Helper: run pose detection and return results
+  Future<List<DetectionResult>> _runPoseDetectionOnFrame(
+      CameraImage cameraImage,
+      {bool isFrontCamera = false}) async {
+    try {
+      print('SPPB: running pose detection');
+      final bytes = CameraImageUtils.convertCameraImageToBytes(cameraImage,
+          isFrontCamera: isFrontCamera);
+      if (bytes.isEmpty) return [];
+
+      final res = await _poseService.processFrame(
+          bytes, cameraImage.height, cameraImage.width);
+      print('SPPB: pose detection -> ${res.length} results');
+      return res;
+    } catch (e) {
+      print('SPPB: pose detection error: $e');
+      return [];
+    }
+  }
+
+  // Helper: run chair/object detection and return results
+  Future<List<DetectionResult>> _runChairDetectionOnFrame(
+      CameraImage cameraImage,
+      {bool isFrontCamera = false}) async {
+    try {
+      print('SPPB: running chair/object detection');
+      final bytes = CameraImageUtils.convertCameraImageToBytes(cameraImage,
+          isFrontCamera: isFrontCamera);
+      if (bytes.isEmpty) return [];
+
+      final res = await _chairService.processFrame(
+          bytes, cameraImage.height, cameraImage.width);
+      print('SPPB: chair detection -> ${res.length} results');
+      return res;
+    } catch (e) {
+      print('SPPB: chair detection error: $e');
+      return [];
+    }
   }
 
   @override
@@ -74,13 +156,13 @@ class ChairStandTestController extends BaseTestController {
         label: 'Person Detection',
         targetLabel: 'person',
         targetTime: 2.0,
-        maxTime: 10.0,
-        confidenceThreshold: 0.8,
+        maxTime: 15.0,
+        confidenceThreshold: 0.5,
       ),
       TestStep(
         label: 'Chair Stand Test',
         targetLabel: 'chair_stand',
-        targetTime: maxTestTime,
+        targetTime: maxTestTime * 0.5,
         maxTime: maxTestTime,
         confidenceThreshold: 0.6,
       ),

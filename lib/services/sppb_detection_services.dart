@@ -217,6 +217,7 @@ class SPPBAnalysisService extends BaseDetectionService {
       return SPPBAnalysisResult.invalid();
     }
 
+    // Append hip angle to history
     _hipAngleHistory.add(hipAngle);
 
     // Determine movement phase based on angle changes
@@ -229,6 +230,10 @@ class SPPBAnalysisService extends BaseDetectionService {
     );
 
     _movementPhaseHistory.add(movementPhase);
+
+    // DEBUG: print angle and phase for tuning
+    print(
+        'SPPB DEBUG: hipAngle=${hipAngle.toStringAsFixed(1)}, previous=${previousAngle.toStringAsFixed(1)}, phase=$movementPhase');
 
     // Detect completed repetitions
     _detectRepetitions(movementPhase, timestamp);
@@ -293,10 +298,10 @@ class SPPBAnalysisService extends BaseDetectionService {
     required double hipAngle,
     required double previousHipAngle,
   }) {
-    const double sitToStandThreshold = 135.0;
-    const double standToSitThreshold = 105.0;
-    const double angleChangeThreshold =
-        5.0; // Minimum change to detect movement
+    // TUNABLE THRESHOLDS (lowered for easier dev detection)
+    const double sitToStandThreshold = 125.0; // lowered from 135
+    const double standToSitThreshold = 110.0; // slightly raised from 105
+    const double angleChangeThreshold = 3.0; // lowered from 5.0
 
     final angleChange = hipAngle - previousHipAngle;
 
@@ -325,11 +330,16 @@ class SPPBAnalysisService extends BaseDetectionService {
   }
 
   void _detectRepetitions(String currentPhase, DateTime timestamp) {
-    if (_movementPhaseHistory.length < 10) return; // Need some history
+    // Need some movement history - lowered for dev so shorter sequences count
+    if (_movementPhaseHistory.length < 6) return; // Need some history
 
     // Look for sit->stand->sit pattern
     final recentPhases =
         _movementPhaseHistory.skip(_movementPhaseHistory.length - 10).toList();
+
+    // DEBUG: print recent phases before pattern check
+    print(
+        'SPPB DEBUG: recentPhases=${recentPhases.join(', ')} currentPhase=$currentPhase historyLen=${_movementPhaseHistory.length}');
 
     if (recentPhases.contains('sitting') &&
         recentPhases.contains('sit_to_stand') &&
@@ -339,13 +349,18 @@ class SPPBAnalysisService extends BaseDetectionService {
       _completedRepetitions++;
 
       // Record repetition time
+      double? repTime;
       if (_currentRepStartTime != null) {
-        final repTime =
+        repTime =
             timestamp.difference(_currentRepStartTime!).inMilliseconds / 1000.0;
         _repetitionTimes.add(repTime);
       }
 
       _currentRepStartTime = timestamp;
+
+      // DEBUG: log repetition event
+      print(
+          'SPPB DEBUG: counted repetition #${_completedRepetitions} at $timestamp repTime=${repTime ?? 'n/a'}');
 
       // Clear recent history to avoid double counting
       _movementPhaseHistory.clear();
