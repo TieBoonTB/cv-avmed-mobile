@@ -9,11 +9,6 @@ import '../types/detection_types.dart';
 
 /// Chair Stand Test Controller implementing SPPB protocol
 class ChairStandTestController extends BaseTestController {
-  // Detection services
-  late final IsolateChairDetectionService _chairService;
-  late final MLKitPoseDetectionService _poseService;
-  late final SPPBAnalysisService _analysisService;
-
   // Test state
   SPPBTestPhase _currentPhase = SPPBTestPhase.setup;
   SPPBTestMetrics? _currentMetrics;
@@ -31,11 +26,33 @@ class ChairStandTestController extends BaseTestController {
     super.onTestUpdate,
     super.onTestComplete,
     super.onStepComplete,
-  }) {
-    _chairService = IsolateChairDetectionService();
-    _poseService = MLKitPoseDetectionService();
-    _analysisService = SPPBAnalysisService();
+  });
+
+  @override
+  Map<String, BaseDetectionService> createDetectionServices() {
+    return {
+      'objects':
+          IsolateYOLOv5DetectionService(), // Use YOLOv5 for both chair and person detection
+      'pose': MLKitPoseDetectionService(),
+      'analysis': SPPBAnalysisService(),
+    };
   }
+
+  /// Convenience getters for specific detection types and services
+  @override
+  List<DetectionResult> get objectDetections => getDetections('objects');
+  @override
+  List<DetectionResult> get poseDetections => getDetections('pose');
+  @override
+  List<DetectionResult> get analysisDetections => getDetections('analysis');
+
+  /// Convenience getters for typed detection services
+  IsolateYOLOv5DetectionService get yoloService =>
+      detectionServices['objects'] as IsolateYOLOv5DetectionService;
+  MLKitPoseDetectionService get poseService =>
+      detectionServices['pose'] as MLKitPoseDetectionService;
+  SPPBAnalysisService get analysisService =>
+      detectionServices['analysis'] as SPPBAnalysisService;
 
   @override
   Future<void> processCameraFrame(CameraImage cameraImage,
@@ -44,37 +61,47 @@ class ChairStandTestController extends BaseTestController {
     try {
       print('SPPB: processCameraFrame called for phase $_currentPhase');
 
-      List<DetectionResult> results = [];
-
       switch (_currentPhase) {
         case SPPBTestPhase.setup:
         case SPPBTestPhase.detectChair:
-          // Use chair detector for setup and chair detection phases
-          results = await _runChairDetectionOnFrame(cameraImage,
+          // Use YOLOv5 for chair detection phases
+          final objectResults = await _runObjectDetectionOnFrame(cameraImage,
               isFrontCamera: isFrontCamera);
+          // Update the service detections
+          yoloService.updateDetections(objectResults);
           break;
         case SPPBTestPhase.detectPerson:
-        case SPPBTestPhase.chairStandTest:
-          // Use pose detector for person/stand test phases
-          results = await _runPoseDetectionOnFrame(cameraImage,
+          // Use YOLOv5 for person detection phase
+          final personResults = await _runObjectDetectionOnFrame(cameraImage,
               isFrontCamera: isFrontCamera);
+          // Update the service detections
+          yoloService.updateDetections(personResults);
+          break;
+        case SPPBTestPhase.chairStandTest:
+          // Use pose detector for stand test phase
+          final poseResults = await _runPoseDetectionOnFrame(cameraImage,
+              isFrontCamera: isFrontCamera);
+          // Update the service detections
+          poseService.updateDetections(poseResults);
           break;
         case SPPBTestPhase.results:
           // Do not process frames in results phase; keep last detections
           break;
       }
-
-      // Ensure primary detection service cache is updated so step processing
-      // can read consistent results via getCurrentDetections()
-      if (results.isNotEmpty) {
-        // Update the main detection service cache so BaseTestController
-        // step logic can consume the latest detections regardless of which
-        // service produced them.
-        detectionService.updateDetections(results);
-      }
     } catch (e) {
       print('SPPB: Error routing camera frame: $e');
     }
+  }
+
+  // Override getDetections to get fresh data from services
+  @override
+  List<DetectionResult> getDetections(String serviceType) {
+    final service = detectionServices[serviceType];
+    if (service != null && service.isInitialized) {
+      // Get fresh detections directly from the service instead of cache
+      return service.lastDetections;
+    }
+    return [];
   }
 
   // Helper: run pose detection and return results
@@ -87,7 +114,7 @@ class ChairStandTestController extends BaseTestController {
           isFrontCamera: isFrontCamera);
       if (bytes.isEmpty) return [];
 
-      final res = await _poseService.processFrame(
+      final res = await poseService.processFrame(
           bytes, cameraImage.height, cameraImage.width);
       print('SPPB: pose detection -> ${res.length} results');
       return res;
@@ -97,24 +124,32 @@ class ChairStandTestController extends BaseTestController {
     }
   }
 
-  // Helper: run chair/object detection and return results
-  Future<List<DetectionResult>> _runChairDetectionOnFrame(
+  // Helper: run YOLOv5 object detection and return results
+  Future<List<DetectionResult>> _runObjectDetectionOnFrame(
       CameraImage cameraImage,
       {bool isFrontCamera = false}) async {
     try {
-      print('SPPB: running chair/object detection');
+      print('SPPB: running YOLOv5 object detection');
       final bytes = CameraImageUtils.convertCameraImageToBytes(cameraImage,
           isFrontCamera: isFrontCamera);
       if (bytes.isEmpty) return [];
 
-      final res = await _chairService.processFrame(
+      final res = await yoloService.processFrame(
           bytes, cameraImage.height, cameraImage.width);
-      print('SPPB: chair detection -> ${res.length} results');
+      print('SPPB: YOLOv5 detection -> ${res.length} results');
       return res;
     } catch (e) {
-      print('SPPB: chair detection error: $e');
+      print('SPPB: YOLOv5 detection error: $e');
       return [];
     }
+  }
+
+  /// Clear all detection caches - useful when starting a new step
+  void clearDetectionCache() {
+    print('SPPB: Clearing detection cache');
+    yoloService.updateDetections([]);
+    poseService.updateDetections([]);
+    analysisService.resetMetrics(); // Also reset analysis metrics
   }
 
   @override
@@ -122,17 +157,8 @@ class ChairStandTestController extends BaseTestController {
     // Initialize the base detection service (chair service as primary)
     await super.initialize();
 
-    // Initialize additional services
-    await _poseService.initialize();
-    await _analysisService.initialize();
-
+    // Additional services are initialized automatically by BaseTestController
     print('SPPB Controller: All services initialized');
-  }
-
-  @override
-  BaseDetectionService createDetectionService() {
-    // Return the chair detection service as the primary detection service
-    return _chairService;
   }
 
   @override
@@ -177,8 +203,8 @@ class ChairStandTestController extends BaseTestController {
   }
 
   @override
-  bool processDetectionResult(
-      List<DetectionResult> detections, TestStep currentStep) {
+  bool processDetectionResults(
+      Map<String, List<DetectionResult>> detections, TestStep currentStep) {
     // Log the detection process for debugging
     print(
         'SPPB Processing ${detections.length} detections for step: ${currentStep.label}');
@@ -186,15 +212,15 @@ class ChairStandTestController extends BaseTestController {
 
     switch (_currentPhase) {
       case SPPBTestPhase.setup:
-        return _validateSetupPhase(detections, currentStep);
+        return _validateSetupPhase(objectDetections, currentStep);
       case SPPBTestPhase.detectChair:
-        return _validateChairDetection(detections);
+        return _validateChairDetection(objectDetections);
       case SPPBTestPhase.detectPerson:
-        return _validatePersonDetection(detections);
+        return _validatePersonDetection(objectDetections);
       case SPPBTestPhase.chairStandTest:
-        return _processChairStandDetection(detections);
+        return _processValidateChairStandDetection(poseDetections);
       case SPPBTestPhase.results:
-        return _validateResultsPhase(detections, currentStep);
+        return _validateResultsPhase(analysisDetections, currentStep);
     }
   }
 
@@ -210,7 +236,7 @@ class ChairStandTestController extends BaseTestController {
   bool _validateChairDetection(List<DetectionResult> detections) {
     print(
         '  Chair detection: Looking for chairs in ${detections.length} detections');
-    final result = _chairService.validateChairSetup(detections);
+    final result = validateChairSetup(detections);
     print('  Chair detection result: $result');
     return result;
   }
@@ -218,23 +244,23 @@ class ChairStandTestController extends BaseTestController {
   bool _validatePersonDetection(List<DetectionResult> detections) {
     print(
         '  Person detection: Looking for person pose in ${detections.length} detections');
-    final result = _poseService.validatePersonPosition(detections);
+    final result = validatePersonPosition(detections);
     print('  Person detection result: $result');
     return result;
   }
 
-  bool _processChairStandDetection(List<DetectionResult> detections) {
+  bool _processValidateChairStandDetection(List<DetectionResult> detections) {
     print('  Chair stand test: Processing ${detections.length} detections');
-    final landmarks = _poseService.extractLandmarks(detections);
+    final landmarks = poseService.extractLandmarks(detections);
 
     if (landmarks.isNotEmpty) {
       print('  Found ${landmarks.length} landmarks, analyzing movement...');
-      _analysisService.analyzeMovement(
+      analysisService.analyzeMovement(
         landmarks: landmarks,
         timestamp: DateTime.now(),
       );
 
-      _currentMetrics = _analysisService.getTestMetrics();
+      _currentMetrics = analysisService.getTestMetrics();
       print(
           '  Completed repetitions: ${_currentMetrics?.completedRepetitions ?? 0}');
 
@@ -295,6 +321,7 @@ class ChairStandTestController extends BaseTestController {
     }
   }
 
+  @override
   String get currentStepInstructions {
     switch (_currentPhase) {
       case SPPBTestPhase.setup:
@@ -340,8 +367,9 @@ class ChairStandTestController extends BaseTestController {
     _testStartTime = null;
     _currentMetrics = null;
 
-    // Reset analysis service
-    _analysisService.resetMetrics();
+    // Clear detection cache and reset analysis service
+    clearDetectionCache();
+    analysisService.resetMetrics();
 
     print('SPPB Test initialized');
   }
@@ -349,6 +377,9 @@ class ChairStandTestController extends BaseTestController {
   @override
   Future<void> onStepStart(TestStep step) async {
     await super.onStepStart(step);
+
+    // Clear previous detection cache when starting a new step
+    clearDetectionCache();
 
     // Synchronize internal phase with test steps
     switch (step.label) {
@@ -375,41 +406,96 @@ class ChairStandTestController extends BaseTestController {
     print('SPPB Step completed: ${step.label} - Success: $isSuccess');
   }
 
+  /// Validate chair positioning for test setup
+  /// Replaces the functionality previously in IsolateChairDetectionService
+  bool validateChairSetup(List<DetectionResult> detections) {
+    final chairs =
+        detections.where((d) => d.label.toLowerCase() == 'chair').toList();
+
+    if (chairs.isEmpty) {
+      print('Chair validation failed: No chairs detected');
+      return false;
+    }
+
+    // Debug: list all candidate chairs found
+    print('Chair validation: found ${chairs.length} candidate(s)');
+    for (var i = 0; i < chairs.length; i++) {
+      final c = chairs[i];
+      print(
+          '  candidate[$i]: confidence=${c.confidence.toStringAsFixed(3)}, box=${c.box}');
+    }
+
+    // Check chair is in center area and properly sized
+    final chair = chairs.first;
+    final centerX = chair.box.x + chair.box.width / 2;
+    final centerY = chair.box.y + chair.box.height / 2;
+
+    // Individual checks for easier debugging
+    final bool inHorizontal = centerX > 0.3 && centerX < 0.7;
+    final bool inVertical = centerY > 0.4 && centerY < 0.8;
+    final bool hasConfidence = chair.confidence > 0.7;
+
+    final isValidPosition = inHorizontal && inVertical && hasConfidence;
+    return isValidPosition;
+  }
+
+  /// Validate person positioning for person detection phase
+  /// Filters YOLOv5 results for person detection with position validation
+  bool validatePersonPosition(List<DetectionResult> detections) {
+    final persons =
+        detections.where((d) => d.label.toLowerCase() == 'person').toList();
+
+    if (persons.isEmpty) {
+      print('Person validation failed: No persons detected');
+      return false;
+    }
+
+    // Debug: list all candidate persons found
+    print('Person validation: found ${persons.length} candidate(s)');
+    for (var i = 0; i < persons.length; i++) {
+      final p = persons[i];
+      print(
+          '  candidate[$i]: confidence=${p.confidence.toStringAsFixed(3)}, box=${p.box}');
+    }
+
+    // Check person is reasonably positioned and has good confidence
+    final person = persons.first;
+    final centerX = person.box.x + person.box.width / 2;
+    final centerY = person.box.y + person.box.height / 2;
+
+    // Person should be reasonably centered and have good confidence
+    final bool inHorizontal = centerX > 0.2 && centerX < 0.8;
+    final bool inVertical = centerY > 0.2 && centerY < 0.9;
+    final bool hasConfidence = person.confidence > 0.5;
+
+    final isValidPosition = inHorizontal && inVertical && hasConfidence;
+    return isValidPosition;
+  }
+
   Future<void> stopTest() async {
     _currentPhase = SPPBTestPhase.results;
     onTestUpdate?.call();
   }
 
   @override
-  void dispose() {
-    // Dispose all services manually since we use multiple services
-    try {
-      _chairService.dispose();
-    } catch (e) {
-      print('Error disposing chair service: $e');
-    }
+  void resetTest() {
+    super.resetTest();
 
-    try {
-      _poseService.dispose();
-    } catch (e) {
-      print('Error disposing pose service: $e');
-    }
+    // Clear detection cache when resetting test
+    clearDetectionCache();
 
-    try {
-      _analysisService.dispose();
-    } catch (e) {
-      print('Error disposing analysis service: $e');
-    }
+    // Reset SPPB specific state
+    _currentPhase = SPPBTestPhase.setup;
+    _setupValidationCount = 0;
+    _testStartTime = null;
+    _currentMetrics = null;
 
-    // Call parent dispose to handle the main detection service
-    super.dispose();
+    print('SPPB Test reset');
   }
 }
 
 /// Balance Test Controller for SPPB balance component
 class BalanceTestController extends BaseTestController {
-  final PoseDetectionService _poseService = PoseDetectionService();
-
   BalanceTestController({
     required super.isTrial,
     super.onTestUpdate,
@@ -418,9 +504,30 @@ class BalanceTestController extends BaseTestController {
   });
 
   @override
-  BaseDetectionService createDetectionService() {
-    return _poseService;
+  Map<String, BaseDetectionService> createDetectionServices() {
+    return {
+      'pose': PoseDetectionService(),
+    };
   }
+
+  @override
+  bool processDetectionResults(
+      Map<String, List<DetectionResult>> detectionsByService,
+      TestStep currentStep) {
+    final poseDetections = detectionsByService['pose'] ?? [];
+
+    // Balance test specific processing
+    for (final detection in poseDetections) {
+      if (detection.label.toLowerCase().contains('person') &&
+          detection.confidence >= currentStep.confidenceThreshold) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Convenience getter for pose detections
+  List<DetectionResult> get poseDetections => getDetections('pose');
 
   @override
   List<TestStep> createTestSteps() {
@@ -448,19 +555,10 @@ class BalanceTestController extends BaseTestController {
       ),
     ];
   }
-
-  @override
-  bool processDetectionResult(
-      List<DetectionResult> detections, TestStep currentStep) {
-    // TODO: Implement balance-specific detection logic
-    return true;
-  }
 }
 
 /// Gait Speed Test Controller for SPPB gait component
 class GaitTestController extends BaseTestController {
-  final PoseDetectionService _poseService = PoseDetectionService();
-
   GaitTestController({
     required super.isTrial,
     super.onTestUpdate,
@@ -469,9 +567,30 @@ class GaitTestController extends BaseTestController {
   });
 
   @override
-  BaseDetectionService createDetectionService() {
-    return _poseService;
+  Map<String, BaseDetectionService> createDetectionServices() {
+    return {
+      'pose': PoseDetectionService(),
+    };
   }
+
+  @override
+  bool processDetectionResults(
+      Map<String, List<DetectionResult>> detectionsByService,
+      TestStep currentStep) {
+    final poseDetections = detectionsByService['pose'] ?? [];
+
+    // Gait test specific processing
+    for (final detection in poseDetections) {
+      if (detection.label.toLowerCase().contains('person') &&
+          detection.confidence >= currentStep.confidenceThreshold) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Convenience getter for pose detections
+  List<DetectionResult> get poseDetections => getDetections('pose');
 
   @override
   List<TestStep> createTestSteps() {
@@ -498,13 +617,6 @@ class GaitTestController extends BaseTestController {
         confidenceThreshold: 0.7,
       ),
     ];
-  }
-
-  @override
-  bool processDetectionResult(
-      List<DetectionResult> detections, TestStep currentStep) {
-    // TODO: Implement gait-specific detection logic
-    return true;
   }
 }
 

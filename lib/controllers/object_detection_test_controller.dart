@@ -14,8 +14,10 @@ class ObjectDetectionTestController extends BaseTestController {
   });
 
   @override
-  BaseDetectionService createDetectionService() {
-    return IsolateYOLOv5DetectionService();
+  Map<String, BaseDetectionService> createDetectionServices() {
+    return {
+      'objects': IsolateYOLOv5DetectionService(),
+    };
   }
 
   @override
@@ -53,8 +55,17 @@ class ObjectDetectionTestController extends BaseTestController {
   }
 
   @override
-  bool processDetectionResult(
-      List<DetectionResult> detections, TestStep currentStep) {
+  String? get currentStepInstructions {
+    return currentStep?.label;
+  }
+
+  @override
+  bool processDetectionResults(
+      Map<String, List<DetectionResult>> detectionsByService,
+      TestStep currentStep) {
+    // Get object detections
+    final detections = detectionsByService['objects'] ?? [];
+
     // Look for the target label in the detections
     for (final detection in detections) {
       if (detection.label == currentStep.targetLabel &&
@@ -86,17 +97,17 @@ class ObjectDetectionTestController extends BaseTestController {
 
   /// Get isolate-based YOLOv5 detection service for advanced operations
   IsolateYOLOv5DetectionService get yoloService =>
-      detectionService as IsolateYOLOv5DetectionService;
+      detectionServices['objects'] as IsolateYOLOv5DetectionService;
 
   /// Get all current detections with their confidence scores
   List<DetectionResult> getAllDetections() {
-    return detectionService.lastDetections;
+    return getDetections('objects');
   }
 
   /// Get detections filtered by confidence
   List<DetectionResult> getHighConfidenceDetections(
       {double minConfidence = 0.5}) {
-    return detectionService.lastDetections
+    return getDetections('objects')
         .where((detection) => detection.confidence >= minConfidence)
         .toList();
   }

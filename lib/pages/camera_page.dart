@@ -4,6 +4,8 @@ import 'package:get/get.dart';
 import 'dart:async';
 import '../controllers/base_test_controller.dart';
 import '../controllers/camera_feed_controller.dart';
+import '../types/detection_types.dart';
+import '../widgets/pose_mlkit_painter.dart';
 import '../utils/test_controller_factory.dart';
 import "../utils/adaptive_interval_calculator.dart";
 import 'landing_page.dart';
@@ -146,7 +148,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   Future<void> _processCurrentFrame() async {
     if (!mounted ||
         _testController == null ||
-        !_testController!.detectionService.isInitialized) {
+        !_testController!.areAllServicesInitialized) {
       return;
     }
 
@@ -158,6 +160,8 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       try {
         await _testController!.processCameraFrame(currentImage,
             isFrontCamera: _cameraController.isFrontCamera);
+
+        setState(() {});
 
         // Stop timing and check if we should adjust interval
         _intervalCalculator.stopTiming();
@@ -415,7 +419,6 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
         children: [
           // Camera feed
           _buildCameraFeed(),
-
           // Flash overlay
           AnimatedBuilder(
             animation: _flashController,
@@ -424,7 +427,8 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
                   _currentFlashColor.withValues(alpha: _flashController.value),
             ),
           ),
-
+          // Detection overlays (landmarks only - no bounding boxes for objects)
+          _buildDetectionOverlays(),
           // UI overlay
           _buildUIOverlay(),
         ],
@@ -432,27 +436,75 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildCameraFeed() {
+  /// Helper to wrap content in camera preview sizing
+  Widget _buildCameraContainer({required Widget child}) {
     return Positioned.fill(
       child: Obx(() {
-        if (_cameraController.isInitialized.value) {
-          return FittedBox(
-            fit: BoxFit.cover,
-            child: SizedBox(
-              width:
-                  _cameraController.cameraController!.value.previewSize!.height,
-              height:
-                  _cameraController.cameraController!.value.previewSize!.width,
-              child: _cameraController.cameraController!.buildPreview(),
-            ),
-          );
-        } else {
+        if (!_cameraController.isInitialized.value ||
+            _cameraController.cameraController == null ||
+            !_cameraController.cameraController!.value.isInitialized) {
           return const Center(
             child: CircularProgressIndicator(color: Colors.white),
           );
         }
+
+        final previewSize =
+            _cameraController.cameraController!.value.previewSize;
+        if (previewSize == null) {
+          return const Center(
+            child: CircularProgressIndicator(color: Colors.white),
+          );
+        }
+
+        return FittedBox(
+          fit: BoxFit.cover,
+          child: SizedBox(
+            width: previewSize.height, // Rotated for camera orientation
+            height: previewSize.width,
+            child: child,
+          ),
+        );
       }),
     );
+  }
+
+  Widget _buildCameraFeed() {
+    return _buildCameraContainer(
+      child: Builder(
+        builder: (context) {
+          final controller = _cameraController.cameraController;
+          if (controller == null || !controller.value.isInitialized) {
+            return Container(color: Colors.black);
+          }
+          return controller.buildPreview();
+        },
+      ),
+    );
+  }
+
+  /// Builds detection overlays based on detection type
+  /// - Pose landmarks: skeleton painter
+  /// - Objects: no overlay (as requested)
+  Widget _buildDetectionOverlays() {
+    if (_testController == null) return const SizedBox.shrink();
+
+    final poseDetections = _testController!.poseDetections;
+
+    // Show skeleton for pose detections
+    if (poseDetections.isNotEmpty) {
+      return _buildCameraContainer(
+        child: CustomPaint(
+          painter: MLKitPainter(
+            landmarks: poseDetections,
+            showLabels: false,
+            minConfidence: 0.2,
+          ),
+        ),
+      );
+    }
+
+    // No overlay for other detection types (objects, analysis, etc.)
+    return const SizedBox.shrink();
   }
 
   Widget _buildUIOverlay() {
@@ -634,60 +686,70 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   Widget _buildDetectionInfo() {
     if (_testController == null) return const SizedBox();
 
-    final detections = _testController!.detectionService.lastDetections;
     final currentStep = _testController!.currentStep;
 
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.black54,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: detections.isNotEmpty
-              ? Colors.green.withValues(alpha: 0.3)
-              : Colors.white.withValues(alpha: 0.1),
-          width: 1,
+    // Use the new multi-service API to get different detection types
+    final objectDetections = _testController!.objectDetections;
+    final analysisDetections = _testController!.analysisDetections;
+
+    // Determine which detections to show based on what's available
+    List<DetectionResult> displayDetections = [];
+    String detectionType = '';
+    IconData detectionIcon = Icons.visibility;
+    Color detectionColor = Colors.blue;
+
+    if (objectDetections.isNotEmpty) {
+      displayDetections = objectDetections;
+      detectionType = 'Objects';
+      detectionIcon = Icons.category;
+      detectionColor = Colors.orange;
+    } else if (analysisDetections.isNotEmpty) {
+      displayDetections = analysisDetections;
+      detectionType = 'Analysis';
+      detectionIcon = Icons.analytics;
+      detectionColor = Colors.purple;
+    }
+
+    // Show detection info if any detections are available
+    if (displayDetections.isNotEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.black54,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+              color: detectionColor.withValues(alpha: 0.3), width: 1),
         ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                detections.isNotEmpty ? Icons.visibility : Icons.visibility_off,
-                color: detections.isNotEmpty ? Colors.green : Colors.white70,
-                size: 16,
-              ),
-              const SizedBox(width: 4),
-              Text(
-                'Detections: ${detections.length}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              if (currentStep != null) ...[
-                const Spacer(),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(detectionIcon, color: detectionColor, size: 16),
+                const SizedBox(width: 4),
                 Text(
-                  'Target: ${currentStep.targetLabel}',
+                  '$detectionType: ${displayDetections.length}',
                   style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 12,
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
+                if (currentStep != null) ...[
+                  const Spacer(),
+                  Text(
+                    'Target: ${currentStep.targetLabel}',
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
               ],
-            ],
-          ),
-          const SizedBox(height: 4),
-          if (detections.isEmpty)
-            const Text(
-              'No objects detected',
-              style: TextStyle(color: Colors.white70, fontSize: 12),
-            )
-          else
-            ...detections.take(3).map((detection) => Padding(
+            ),
+            const SizedBox(height: 4),
+            // Show individual detection details (limit to first 3)
+            ...displayDetections.take(3).map((detection) => Padding(
                   padding: const EdgeInsets.only(top: 2),
                   child: Row(
                     children: [
@@ -719,6 +781,57 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
                     ],
                   ),
                 )),
+          ],
+        ),
+      );
+    }
+
+    // Show status when no detections are available but controller is ready
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.1),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                _testController!.areAllServicesInitialized
+                    ? Icons.visibility_off
+                    : Icons.hourglass_empty,
+                color: Colors.white70,
+                size: 16,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                _testController!.areAllServicesInitialized
+                    ? 'No detections'
+                    : 'Initializing...',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              if (currentStep != null) ...[
+                const Spacer(),
+                Text(
+                  'Target: ${currentStep.targetLabel}',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ],
+          ),
         ],
       ),
     );

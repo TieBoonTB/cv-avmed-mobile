@@ -15,8 +15,10 @@ class AVMedTestController extends BaseTestController {
   });
 
   @override
-  BaseDetectionService createDetectionService() {
-    return IsolateAVMedDetectionService();
+  Map<String, BaseDetectionService> createDetectionServices() {
+    return {
+      'avmed': IsolateAVMedDetectionService(),
+    };
   }
 
   @override
@@ -66,10 +68,13 @@ class AVMedTestController extends BaseTestController {
   }
 
   @override
-  bool processDetectionResult(
-      List<DetectionResult> detections, TestStep currentStep) {
-    // AVMED-specific detection processing logic
+  bool processDetectionResults(
+      Map<String, List<DetectionResult>> detectionsByService,
+      TestStep currentStep) {
+    // Get AVMED detections
+    final detections = detectionsByService['avmed'] ?? [];
 
+    // AVMED-specific detection processing logic
     final targetLabel = currentStep.targetLabel.toLowerCase();
     final threshold = currentStep.confidenceThreshold;
 
@@ -212,7 +217,9 @@ class AVMedTestController extends BaseTestController {
     print('AVMED Step started: ${step.label}');
 
     // AVMED-specific step initialization
-    if (detectionService is IsolateAVMedDetectionService) {
+    final services = detectionServices;
+    final avmedService = services['avmed'];
+    if (avmedService is IsolateAVMedDetectionService) {
       print('Using isolate-based AVMED detection service');
     }
   }
@@ -222,7 +229,9 @@ class AVMedTestController extends BaseTestController {
     print('AVMED Step completed: ${step.label}, Success: $isSuccess');
 
     // Log detailed step completion information
-    if (detectionService is IsolateAVMedDetectionService) {
+    final services = detectionServices;
+    final avmedService = services['avmed'];
+    if (avmedService is IsolateAVMedDetectionService) {
       print('Isolate-based AVMED detection completed for step');
     }
 

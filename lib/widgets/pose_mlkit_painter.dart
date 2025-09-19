@@ -16,14 +16,39 @@ class MLKitPainter extends CustomPainter {
 
   // Use the same landmark connectivity as MediaPipe
   static const List<List<int>> _connections = [
-    [0, 1], [1, 2], [2, 3], [3, 7],
-    [0, 4], [4, 5], [5, 6], [6, 8],
+    [0, 1],
+    [1, 2],
+    [2, 3],
+    [3, 7],
+    [0, 4],
+    [4, 5],
+    [5, 6],
+    [6, 8],
     [9, 10],
-    [11, 13], [13, 15], [15, 17], [17, 19], [19, 15], [15, 21],
-    [12, 14], [14, 16], [16, 18], [18, 20], [20, 16], [16, 22],
-    [11, 12], [12, 24], [24, 23], [23, 11],
-    [23, 25], [25, 27], [27, 29], [29, 31],
-    [24, 26], [26, 28], [28, 30], [30, 32],
+    [11, 13],
+    [13, 15],
+    [15, 17],
+    [17, 19],
+    [19, 15],
+    [15, 21],
+    [12, 14],
+    [14, 16],
+    [16, 18],
+    [18, 20],
+    [20, 16],
+    [16, 22],
+    [11, 12],
+    [12, 24],
+    [24, 23],
+    [23, 11],
+    [23, 25],
+    [25, 27],
+    [27, 29],
+    [29, 31],
+    [24, 26],
+    [26, 28],
+    [28, 30],
+    [30, 32],
   ];
 
   @override
@@ -74,7 +99,9 @@ class MLKitPainter extends CustomPainter {
       final textStyle = TextStyle(
         color: Colors.white,
         fontSize: 8,
-        shadows: [Shadow(color: Colors.black, offset: Offset(1, 1), blurRadius: 2)],
+        shadows: [
+          Shadow(color: Colors.black, offset: Offset(1, 1), blurRadius: 2)
+        ],
       );
 
       for (int i = 0; i < landmarks.length && i < points.length; i++) {
@@ -88,7 +115,8 @@ class MLKitPainter extends CustomPainter {
         );
         textPainter.layout();
 
-        final textOffset = Offset(point.dx + 5, point.dy - textPainter.height / 2);
+        final textOffset =
+            Offset(point.dx + 5, point.dy - textPainter.height / 2);
         textPainter.paint(canvas, textOffset);
       }
     }

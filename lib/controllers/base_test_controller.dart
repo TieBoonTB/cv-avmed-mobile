@@ -15,7 +15,9 @@ abstract class BaseTestController {
   final VoidCallback? onTestComplete;
   final Function(bool isSuccess)? onStepComplete;
 
-  late BaseDetectionService _detectionService;
+  // Support for multiple detection services
+  Map<String, BaseDetectionService> _detectionServices = {};
+  late Map<String, List<DetectionResult>> _lastDetections;
 
   // Cached test steps to preserve state during test execution
   List<TestStep>? _cachedTestSteps;
@@ -33,20 +35,31 @@ abstract class BaseTestController {
     this.onTestUpdate,
     this.onTestComplete,
     this.onStepComplete,
-  });
+  }) {
+    _lastDetections = {};
+  }
 
   // Abstract methods that must be implemented by subclasses
 
-  /// Get the detection service specific to this test type
-  BaseDetectionService createDetectionService();
+  /// Get the detection services specific to this test type
+  /// Returns a map of service names to detection services
+  /// Example: {'pose': MLKitPoseService(), 'analysis': SPPBAnalysisService()}
+  Map<String, BaseDetectionService> createDetectionServices();
 
   /// Get the list of test steps for this specific test
   List<TestStep> createTestSteps();
 
-  /// Process detection results for the current step
-  /// Returns true if the detection is valid for the current step
-  bool processDetectionResult(
-      List<DetectionResult> detections, TestStep currentStep);
+  /// Get instructions for the current step
+  /// This should return user-friendly instructions that can be displayed in the UI
+  String? get currentStepInstructions {
+    return currentStep?.label;
+  }
+
+  /// Process detection results for the current step from multiple services
+  /// Returns true if the detections are valid for the current step
+  bool processDetectionResults(
+      Map<String, List<DetectionResult>> detectionsByService,
+      TestStep currentStep);
 
   /// Optional: Custom logic when a step starts
   Future<void> onStepStart(TestStep step) async {}
@@ -56,17 +69,29 @@ abstract class BaseTestController {
 
   // Common functionality provided by base class
 
-  /// Initialize the test controller and its detection service
+  /// Initialize the test controller and its detection services
   Future<void> initialize() async {
-    _detectionService = createDetectionService();
-    await _detectionService.initialize();
+    _detectionServices = createDetectionServices();
+
+    // Initialize all detection services
+    for (final service in _detectionServices.values) {
+      await service.initialize();
+    }
+
+    // Initialize detection results map
+    for (final serviceKey in _detectionServices.keys) {
+      _lastDetections[serviceKey] = [];
+    }
   }
 
-  /// Process a camera image through the detection service
+  /// Process a camera image through all detection services
   /// This method should be called whenever a new camera frame is available
   Future<void> processCameraFrame(CameraImage cameraImage,
       {bool isFrontCamera = false}) async {
-    if (!_detectionService.isInitialized) return;
+    // Check if any services are initialized
+    if (_detectionServices.values.every((service) => !service.isInitialized)) {
+      return;
+    }
 
     try {
       // Convert camera image to bytes
@@ -74,20 +99,70 @@ abstract class BaseTestController {
           isFrontCamera: isFrontCamera);
 
       if (imageBytes.isNotEmpty) {
-        // Process frame through the detection service
-        await _detectionService.processFrame(
-          imageBytes,
-          cameraImage.height,
-          cameraImage.width,
-        );
+        // Process frame through all detection services
+        for (final entry in _detectionServices.entries) {
+          final serviceKey = entry.key;
+          final service = entry.value;
+
+          if (service.isInitialized) {
+            await service.processFrame(
+              imageBytes,
+              cameraImage.height,
+              cameraImage.width,
+            );
+
+            // Update cached detections for this service
+            _lastDetections[serviceKey] = await service.getCurrentDetections();
+          }
+        }
       }
     } catch (e) {
       print('Error processing camera frame: $e');
     }
   }
 
-  /// Get the current detection service
-  BaseDetectionService get detectionService => _detectionService;
+  // Public API for accessing detection results
+
+  /// Get detections by service type
+  List<DetectionResult> getDetections(String serviceType) =>
+      _lastDetections[serviceType] ?? [];
+
+  /// Get all detection types available
+  Set<String> get availableDetectionTypes => _detectionServices.keys.toSet();
+
+  /// Check if all detection services have been initialized
+  bool get areAllServicesInitialized =>
+      _detectionServices.isNotEmpty &&
+      _detectionServices.values.every((service) => service.isInitialized);
+
+  /// Check if any detection services have been initialized
+  bool get isAnyServiceInitialized =>
+      _detectionServices.values.any((service) => service.isInitialized);
+
+  /// Get initialization status for each service
+  Map<String, bool> get serviceInitializationStatus =>
+      Map.fromEntries(_detectionServices.entries
+          .map((entry) => MapEntry(entry.key, entry.value.isInitialized)));
+
+  /// Convenience getters for common types
+  List<DetectionResult> get poseDetections => getDetections('pose');
+  List<DetectionResult> get analysisDetections => getDetections('analysis');
+  List<DetectionResult> get objectDetections => getDetections('objects');
+
+  /// Get the current detection service (backward compatibility)
+  /// Returns the first service if multiple services are available
+  @Deprecated(
+      'Use getDetections() or specific type getters for multi-service controllers')
+  BaseDetectionService get detectionService {
+    if (_detectionServices.isEmpty) {
+      throw StateError('No detection services initialized');
+    }
+    return _detectionServices.values.first;
+  }
+
+  /// Get all detection services
+  Map<String, BaseDetectionService> get detectionServices =>
+      Map.unmodifiable(_detectionServices);
 
   /// Test state getters
   bool get hasTestStarted => _hasTestStarted;
@@ -238,34 +313,42 @@ abstract class BaseTestController {
     _isProcessing = true;
 
     try {
-      List<DetectionResult> detections;
+      Map<String, List<DetectionResult>> allDetections = {};
 
-      if (_detectionService.serviceType.contains('Mock')) {
-        // For mock detection service, generate fresh detections each time
-        try {
-          // Create dummy frame data for mock processing
-          final dummyFrameData = Uint8List(100); // Mock frame data
-          detections =
-              await _detectionService.processFrame(dummyFrameData, 480, 640);
-        } catch (e) {
-          print('Error processing mock frame: $e');
-          detections = [];
-        }
-      } else {
-        // For real detection services, use cached results from camera frame processing
-        // This ensures we don't interfere with the camera frame processing pipeline
-        detections = await _detectionService.getCurrentDetections();
+      for (final entry in _detectionServices.entries) {
+        final serviceKey = entry.key;
+        final service = entry.value;
+        List<DetectionResult> detections = [];
 
-        // If cache is empty and this is a real detection service,
-        // it might indicate camera frame processing isn't working
-        if (detections.isEmpty) {
-          print(
-              'Warning: No detections in cache for ${_detectionService.serviceType}');
+        if (service.serviceType.contains('Mock')) {
+          // For mock detection service, generate fresh detections each time
+          try {
+            // Create dummy frame data for mock processing
+            final dummyFrameData = Uint8List(100); // Mock frame data
+            detections = await service.processFrame(dummyFrameData, 480, 640);
+          } catch (e) {
+            print('Error processing mock frame for $serviceKey: $e');
+            detections = [];
+          }
+        } else {
+          // For real detection services, use cached results from camera frame processing
+          // This ensures we don't interfere with the camera frame processing pipeline
+          detections = await service.getCurrentDetections();
+
+          // If cache is empty and this is a real detection service,
+          // it might indicate camera frame processing isn't working
+          if (detections.isEmpty) {
+            print(
+                'Warning: No detections in cache for ${service.serviceType} ($serviceKey)');
+          }
         }
+
+        allDetections[serviceKey] = detections;
+        _lastDetections[serviceKey] = detections; // Update cached results
       }
 
-      // Process detections using subclass-specific logic
-      if (processDetectionResult(detections, step)) {
+      // Process detections using subclass-specific logic (new multi-service method)
+      if (processDetectionResults(allDetections, step)) {
         step.detectedFrameCount++;
         _safeCallback(onTestUpdate);
       }
@@ -315,7 +398,14 @@ abstract class BaseTestController {
   /// Dispose resources
   void dispose() {
     _isDisposed = true;
-    _detectionService.dispose();
+
+    // Dispose all detection services
+    for (final service in _detectionServices.values) {
+      service.dispose();
+    }
+
+    _detectionServices.clear();
+    _lastDetections.clear();
   }
 
   /// Safe callback invocation that checks disposal state
