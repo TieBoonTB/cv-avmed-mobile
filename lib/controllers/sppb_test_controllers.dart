@@ -12,6 +12,9 @@ class ChairStandTestController extends BaseTestController {
   // Test state
   SPPBTestPhase _currentPhase = SPPBTestPhase.setup;
   SPPBTestMetrics? _currentMetrics;
+  // Guards for repetition detection reaction
+  int _lastSeenRepCount = 0;
+  DateTime? _lastRepReactionTime;
 
   // Test parameters
   static const int targetRepetitions = 3;
@@ -272,10 +275,34 @@ class ChairStandTestController extends BaseTestController {
       print(
           '  Completed repetitions: ${_currentMetrics?.completedRepetitions ?? 0}');
 
+      // Quick: check analysis detections for a repetition message
+      // Accept common variants: 'repetition detected', 'repetition_detected'
+      final latestAnalysisDetections = analysisDetections;
+      final repetitionMsg = latestAnalysisDetections.firstWhere(
+          (d) =>
+              d.label.toLowerCase().contains('repetition') &&
+              d.label.toLowerCase().contains('detect'),
+          orElse: () => DetectionResult(
+              label: '',
+              confidence: 0.0,
+              box: const DetectionBox(x: 0, y: 0, width: 0, height: 0)));
+
+      if (repetitionMsg.label.isNotEmpty) {
+        final now = DateTime.now();
+        // Debounce: avoid reacting more than once within 700 ms
+        if (_lastRepReactionTime == null ||
+            now.difference(_lastRepReactionTime!).inMilliseconds > 500) {
+          _lastRepReactionTime = now;
+          _lastSeenRepCount =
+              _currentMetrics?.completedRepetitions ?? _lastSeenRepCount + 1;
+          // Trigger the step-complete visual/audio reaction
+          onStepComplete?.call(true);
+        }
+      }
       // Check for test completion or timeout
       if (_currentMetrics != null && _testStartTime != null) {
         if (_currentMetrics!.completedRepetitions >= targetRepetitions) {
-          currentStep?.detectedFrameCount = 1000;
+          currentStep?.detectedFrameCount = currentStep!.targetFrameCount;
         }
       }
 

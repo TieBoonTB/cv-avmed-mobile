@@ -235,65 +235,28 @@ class SPPBAnalysisService extends BaseDetectionService {
     print(
         'SPPB DEBUG: hipAngle=${hipAngle.toStringAsFixed(1)}, previous=${previousAngle.toStringAsFixed(1)}, phase=$movementPhase');
 
-    // Detect completed repetitions
-    _detectRepetitions(movementPhase, timestamp);
+    // Detect completed repetitions (returns whether a new repetition was counted)
+    final bool repDetected = _detectRepetitions(movementPhase, timestamp);
 
     // Calculate clinical metrics
     _updateClinicalMetrics(timestamp);
 
     // Publish recent movement-phase "detections" so controller/UI can react
     try {
-      // Use the last up-to-N movement phases to indicate which phases occurred
-      final recentPhases = _movementPhaseHistory.length > 0
-          ? _movementPhaseHistory
-              .skip(_movementPhaseHistory.length -
-                  10.clamp(0, _movementPhaseHistory.length))
-              .toList()
-          : <String>[];
-
-      // Build ordered detections: completed_repetitions first, then current, then last_stepped, then presence flags
       final List<DetectionResult> phaseDetections = [];
 
-      // 1) completed repetitions (top priority)
-      // write the completed count in the label text so UIs can display it directly
-      phaseDetections.add(DetectionResult(
-        label: 'Completed Repetitions:${_completedRepetitions}',
-        confidence: 1.0,
-        box: const DetectionBox(x: 0.5, y: 0.5, width: 0.02, height: 0.02),
-      ));
-
-      // 2) Recent phases header and joined list (single-string representation)
-      phaseDetections.add(DetectionResult(
-        label: 'Most Recent Phases:',
-        confidence: 1.0,
-        box: const DetectionBox(x: 0.5, y: 0.5, width: 0.02, height: 0.02),
-      ));
-
-      // Join the most recent up-to-10 phases into a single string detection
-      var recentPhasesList = recentPhases.isNotEmpty
-          ? List<String>.from(recentPhases)
-          : <String>[];
-
-      // Remove noisy 'transitioning' entries before display
-      recentPhasesList.removeWhere((p) => p == 'transitioning');
-
-      // Map internal phase keys to human-friendly labels
-      final phasePretty = {
-        'sitting': 'Sitting',
-        'sit_to_stand': 'Sit to Stand',
-        'standing': 'Standing',
-        'stand_to_sit': 'Stand to Sit',
-      };
-
-      final recentPhasesText = recentPhasesList.isNotEmpty
-          ? recentPhasesList.map((p) => phasePretty[p] ?? p).join(', ')
-          : 'None';
-
-      phaseDetections.add(DetectionResult(
-        label: recentPhasesText,
-        confidence: 1.0,
-        box: const DetectionBox(x: 0.5, y: 0.5, width: 0.02, height: 0.02),
-      ));
+      // If a repetition was detected during this analysis call, include a
+      // explicit detection entry so controllers/UI can react to the event
+      // atomically along with the other phase detections.
+      if (repDetected) {
+        phaseDetections.insert(
+            0,
+            DetectionResult(
+              label: 'repetition_detected',
+              confidence: 1.0,
+              box: const DetectionBox(x: 0.0, y: 0.0, width: 0.0, height: 0.0),
+            ));
+      }
 
       // Push these into the service cache so callers can read them via getDetections()/lastDetections
       updateDetections(phaseDetections);
@@ -389,9 +352,9 @@ class SPPBAnalysisService extends BaseDetectionService {
     }
   }
 
-  void _detectRepetitions(String currentPhase, DateTime timestamp) {
+  bool _detectRepetitions(String currentPhase, DateTime timestamp) {
     // Need some movement history - lowered for dev so shorter sequences count
-    if (_movementPhaseHistory.length < 6) return; // Need some history
+    if (_movementPhaseHistory.length < 6) return false; // Need some history
 
     // Look for sit->stand->sit pattern
     final recentPhases =
@@ -424,7 +387,13 @@ class SPPBAnalysisService extends BaseDetectionService {
 
       // Clear recent history to avoid double counting
       _movementPhaseHistory.clear();
+
+      // Return true so caller (analyzeMovement) can publish an explicit
+      // 'repetition_detected' detection as part of the phaseDetections.
+      return true;
     }
+
+    return false;
   }
 
   void _updateClinicalMetrics(DateTime timestamp) {
