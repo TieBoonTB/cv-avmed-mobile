@@ -241,6 +241,66 @@ class SPPBAnalysisService extends BaseDetectionService {
     // Calculate clinical metrics
     _updateClinicalMetrics(timestamp);
 
+    // Publish recent movement-phase "detections" so controller/UI can react
+    try {
+      // Use the last up-to-N movement phases to indicate which phases occurred
+      final recentPhases = _movementPhaseHistory.length > 0
+          ? _movementPhaseHistory
+              .skip(_movementPhaseHistory.length -
+                  10.clamp(0, _movementPhaseHistory.length))
+              .toList()
+          : <String>[];
+
+      // Build ordered detections: completed_repetitions first, then current, then last_stepped, then presence flags
+      final List<DetectionResult> phaseDetections = [];
+
+      // 1) completed repetitions (top priority)
+      // write the completed count in the label text so UIs can display it directly
+      phaseDetections.add(DetectionResult(
+        label: 'Completed Repetitions:${_completedRepetitions}',
+        confidence: 1.0,
+        box: const DetectionBox(x: 0.5, y: 0.5, width: 0.02, height: 0.02),
+      ));
+
+      // 2) Recent phases header and joined list (single-string representation)
+      phaseDetections.add(DetectionResult(
+        label: 'Most Recent Phases:',
+        confidence: 1.0,
+        box: const DetectionBox(x: 0.5, y: 0.5, width: 0.02, height: 0.02),
+      ));
+
+      // Join the most recent up-to-10 phases into a single string detection
+      var recentPhasesList = recentPhases.isNotEmpty
+          ? List<String>.from(recentPhases)
+          : <String>[];
+
+      // Remove noisy 'transitioning' entries before display
+      recentPhasesList.removeWhere((p) => p == 'transitioning');
+
+      // Map internal phase keys to human-friendly labels
+      final phasePretty = {
+        'sitting': 'Sitting',
+        'sit_to_stand': 'Sit to Stand',
+        'standing': 'Standing',
+        'stand_to_sit': 'Stand to Sit',
+      };
+
+      final recentPhasesText = recentPhasesList.isNotEmpty
+          ? recentPhasesList.map((p) => phasePretty[p] ?? p).join(', ')
+          : 'None';
+
+      phaseDetections.add(DetectionResult(
+        label: recentPhasesText,
+        confidence: 1.0,
+        box: const DetectionBox(x: 0.5, y: 0.5, width: 0.02, height: 0.02),
+      ));
+
+      // Push these into the service cache so callers can read them via getDetections()/lastDetections
+      updateDetections(phaseDetections);
+    } catch (e) {
+      print('SPPB Analysis: failed to publish phase detections: $e');
+    }
+
     return SPPBAnalysisResult(
       hipAngle: hipAngle,
       movementPhase: movementPhase,

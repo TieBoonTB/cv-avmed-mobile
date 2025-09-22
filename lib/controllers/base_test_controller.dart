@@ -49,12 +49,6 @@ abstract class BaseTestController {
   /// Get the list of test steps for this specific test
   List<TestStep> createTestSteps();
 
-  /// Get instructions for the current step
-  /// This should return user-friendly instructions that can be displayed in the UI
-  String? get currentStepInstructions {
-    return currentStep?.label;
-  }
-
   /// Process detection results for the current step from multiple services
   /// Returns true if the detections are valid for the current step
   bool processDetectionResults(
@@ -148,17 +142,6 @@ abstract class BaseTestController {
   List<DetectionResult> get poseDetections => getDetections('pose');
   List<DetectionResult> get analysisDetections => getDetections('analysis');
   List<DetectionResult> get objectDetections => getDetections('objects');
-
-  /// Get the current detection service (backward compatibility)
-  /// Returns the first service if multiple services are available
-  @Deprecated(
-      'Use getDetections() or specific type getters for multi-service controllers')
-  BaseDetectionService get detectionService {
-    if (_detectionServices.isEmpty) {
-      throw StateError('No detection services initialized');
-    }
-    return _detectionServices.values.first;
-  }
 
   /// Get all detection services
   Map<String, BaseDetectionService> get detectionServices =>
@@ -427,6 +410,7 @@ abstract class BaseTestController {
 class TestStep {
   final String label;
   final String targetLabel;
+  final String? instruction;
   final String? videoPath;
   final String? subtitlePath;
   final double targetTime;
@@ -443,6 +427,7 @@ class TestStep {
   TestStep({
     required this.label,
     required this.targetLabel,
+    this.instruction,
     this.videoPath,
     this.subtitlePath,
     required this.targetTime,

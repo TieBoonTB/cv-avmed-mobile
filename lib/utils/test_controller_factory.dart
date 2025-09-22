@@ -15,7 +15,7 @@ class TestControllerFactory {
   static const String chairStandTest = 'chair-stand';
   static const String balanceTest = 'balance';
   static const String gaitTest = 'gait';
-  
+
   /// Create a test controller based on type
   static BaseTestController createController({
     required String testType,
@@ -32,7 +32,7 @@ class TestControllerFactory {
           onTestComplete: onTestComplete,
           onStepComplete: onStepComplete,
         );
-      
+
       case objectDetectionTest:
         return ObjectDetectionTestController(
           isTrial: isTrial,
@@ -40,7 +40,7 @@ class TestControllerFactory {
           onTestComplete: onTestComplete,
           onStepComplete: onStepComplete,
         );
-      
+
       case avmedTest:
         return AVMedTestController(
           isTrial: isTrial,
@@ -48,7 +48,7 @@ class TestControllerFactory {
           onTestComplete: onTestComplete,
           onStepComplete: onStepComplete,
         );
-      
+
       case chairStandTest:
         return ChairStandTestController(
           isTrial: isTrial,
@@ -56,7 +56,7 @@ class TestControllerFactory {
           onTestComplete: onTestComplete,
           onStepComplete: onStepComplete,
         );
-      
+
       case balanceTest:
         return BalanceTestController(
           isTrial: isTrial,
@@ -64,7 +64,7 @@ class TestControllerFactory {
           onTestComplete: onTestComplete,
           onStepComplete: onStepComplete,
         );
-      
+
       case gaitTest:
         return GaitTestController(
           isTrial: isTrial,
@@ -72,7 +72,7 @@ class TestControllerFactory {
           onTestComplete: onTestComplete,
           onStepComplete: onStepComplete,
         );
-      
+
       default:
         // Default to mock test for unknown types
         return MockTestController(
@@ -83,7 +83,7 @@ class TestControllerFactory {
         );
     }
   }
-  
+
   /// Get display name for test type
   static String getTestDisplayName(String testType) {
     switch (testType.toLowerCase()) {
@@ -103,7 +103,7 @@ class TestControllerFactory {
         return 'Unknown Test';
     }
   }
-  
+
   /// Get description for test type
   static String getTestDescription(String testType) {
     switch (testType.toLowerCase()) {
@@ -123,12 +123,13 @@ class TestControllerFactory {
         return 'Unknown test type';
     }
   }
-  
+
   /// Get all available test types
   static List<String> getAvailableTestTypes() {
-    return [mockTest, objectDetectionTest, avmedTest, chairStandTest, balanceTest, gaitTest];
+    // return [mockTest, objectDetectionTest, avmedTest, chairStandTest, balanceTest, gaitTest];
+    return [objectDetectionTest, chairStandTest];
   }
-  
+
   /// Check if a test type is valid
   static bool isValidTestType(String testType) {
     return getAvailableTestTypes().contains(testType.toLowerCase());

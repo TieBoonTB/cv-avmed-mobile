@@ -644,6 +644,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
 
     return Column(
       children: [
+        // Step label
         Text(
           currentStep.label,
           style: const TextStyle(
@@ -652,6 +653,18 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
             fontWeight: FontWeight.bold,
           ),
         ),
+        // Optional instruction subtitle
+        if (currentStep.instruction != null &&
+            currentStep.instruction!.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            currentStep.instruction!,
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 12,
+            ),
+          ),
+        ],
         const SizedBox(height: 8),
         AnimatedBuilder(
           animation: _progressController,
@@ -692,26 +705,18 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     final objectDetections = _testController!.objectDetections;
     final analysisDetections = _testController!.analysisDetections;
 
-    // Determine which detections to show based on what's available
-    List<DetectionResult> displayDetections = [];
-    String detectionType = '';
-    IconData detectionIcon = Icons.visibility;
-    Color detectionColor = Colors.blue;
-
-    if (objectDetections.isNotEmpty) {
-      displayDetections = objectDetections;
-      detectionType = 'Objects';
-      detectionIcon = Icons.category;
-      detectionColor = Colors.orange;
-    } else if (analysisDetections.isNotEmpty) {
-      displayDetections = analysisDetections;
-      detectionType = 'Analysis';
-      detectionIcon = Icons.analytics;
-      detectionColor = Colors.purple;
-    }
+    // Choose a single detection list to display. Prefer objects over analysis.
+    final List<DetectionResult> displayDetections =
+        objectDetections.isNotEmpty ? objectDetections : analysisDetections;
+    final bool isAnalysis =
+        objectDetections.isEmpty && analysisDetections.isNotEmpty;
+    final IconData detectionIcon =
+        isAnalysis ? Icons.analytics : Icons.category;
+    final Color detectionColor = isAnalysis ? Colors.purple : Colors.orange;
 
     // Show detection info if any detections are available
     if (displayDetections.isNotEmpty) {
+      // Header
       return Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
@@ -726,61 +731,91 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
             Row(
               children: [
                 Icon(detectionIcon, color: detectionColor, size: 16),
-                const SizedBox(width: 4),
+                const SizedBox(width: 8),
                 Text(
-                  '$detectionType: ${displayDetections.length}',
+                  objectDetections.isNotEmpty ? 'Objects' : 'Analysis',
                   style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                  ),
+                      color: Colors.white, fontWeight: FontWeight.bold),
                 ),
-                if (currentStep != null) ...[
-                  const Spacer(),
-                  Text(
-                    'Target: ${currentStep.targetLabel}',
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
+                const Spacer(),
+                if (currentStep != null)
+                  Text('Target: ${currentStep.targetLabel}',
+                      style: const TextStyle(color: Colors.white70)),
               ],
             ),
-            const SizedBox(height: 4),
-            // Show individual detection details (limit to first 3)
-            ...displayDetections.take(3).map((detection) => Padding(
-                  padding: const EdgeInsets.only(top: 2),
+            const SizedBox(height: 8),
+
+            // For analysis: show label-only items (no confidence)
+            if (isAnalysis) ...[
+              ...displayDetections.take(6).map((d) {
+                // Show simple label rows; remove confidence display
+                return Padding(
+                  padding: const EdgeInsets.only(top: 4),
                   child: Row(
                     children: [
                       Icon(
-                        detection.label == currentStep?.targetLabel
+                        d.label == currentStep?.targetLabel
                             ? Icons.check_circle
                             : Icons.circle_outlined,
-                        color: detection.label == currentStep?.targetLabel
+                        color: d.label == currentStep?.targetLabel
                             ? Colors.green
                             : Colors.white70,
                         size: 12,
                       ),
-                      const SizedBox(width: 4),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          '${detection.label}: ${(detection.confidence * 100).toStringAsFixed(1)}%',
+                          d.label,
                           style: TextStyle(
-                            color: detection.label == currentStep?.targetLabel
+                            color: d.label == currentStep?.targetLabel
                                 ? Colors.green
                                 : Colors.white70,
                             fontSize: 12,
-                            fontWeight:
-                                detection.label == currentStep?.targetLabel
-                                    ? FontWeight.bold
-                                    : FontWeight.normal,
+                            fontWeight: d.label == currentStep?.targetLabel
+                                ? FontWeight.bold
+                                : FontWeight.normal,
                           ),
                         ),
                       ),
                     ],
                   ),
-                )),
+                );
+              }).toList(),
+            ] else ...[
+              // For objects: show label + confidence as percentage
+              ...displayDetections.take(6).map((detection) => Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Row(
+                      children: [
+                        Icon(
+                          detection.label == currentStep?.targetLabel
+                              ? Icons.check_circle
+                              : Icons.circle_outlined,
+                          color: detection.label == currentStep?.targetLabel
+                              ? Colors.green
+                              : Colors.white70,
+                          size: 12,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '${detection.label}: ${(detection.confidence * 100).toStringAsFixed(1)}%',
+                            style: TextStyle(
+                              color: detection.label == currentStep?.targetLabel
+                                  ? Colors.green
+                                  : Colors.white70,
+                              fontSize: 12,
+                              fontWeight:
+                                  detection.label == currentStep?.targetLabel
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )),
+            ],
           ],
         ),
       );

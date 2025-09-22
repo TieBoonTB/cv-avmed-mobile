@@ -55,11 +55,6 @@ class ObjectDetectionTestController extends BaseTestController {
   }
 
   @override
-  String? get currentStepInstructions {
-    return currentStep?.label;
-  }
-
-  @override
   bool processDetectionResults(
       Map<String, List<DetectionResult>> detectionsByService,
       TestStep currentStep) {

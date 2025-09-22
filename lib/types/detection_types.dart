@@ -75,7 +75,8 @@ class DetectionResult {
   }
 
   /// Create a warning detection result for display in UI
-  static DetectionResult createWarning(String modelName, String warningMessage) {
+  static DetectionResult createWarning(
+      String modelName, String warningMessage) {
     return DetectionResult(
       label: '$modelName Warning: $warningMessage',
       confidence: 0.0,
@@ -85,10 +86,12 @@ class DetectionResult {
   }
 
   /// Check if this detection result represents an error
-  bool get isError => status == DetectionStatus.failure || label.contains('Error:');
+  bool get isError =>
+      status == DetectionStatus.failure || label.contains('Error:');
 
   /// Check if this detection result represents a warning
-  bool get isWarning => status == DetectionStatus.warning || label.contains('Warning:');
+  bool get isWarning =>
+      status == DetectionStatus.warning || label.contains('Warning:');
 
   /// Convert to map for serialization
   Map<String, dynamic> toMap() {
@@ -111,5 +114,6 @@ class DetectionResult {
   }
 
   @override
-  String toString() => 'DetectionResult(label: $label, confidence: $confidence, box: $box)';
+  String toString() =>
+      'DetectionResult(label: $label, confidence: $confidence, box: $box)';
 }

@@ -14,7 +14,7 @@ class ChairStandTestController extends BaseTestController {
   SPPBTestMetrics? _currentMetrics;
 
   // Test parameters
-  static const int targetRepetitions = 5;
+  static const int targetRepetitions = 3;
   static const double maxTestTime = 60.0; // seconds
   static const int setupValidationFrames = 30; // ~1 second
 
@@ -149,6 +149,7 @@ class ChairStandTestController extends BaseTestController {
     print('SPPB: Clearing detection cache');
     yoloService.updateDetections([]);
     poseService.updateDetections([]);
+    analysisService.updateDetections([]);
     analysisService.resetMetrics(); // Also reset analysis metrics
   }
 
@@ -166,6 +167,7 @@ class ChairStandTestController extends BaseTestController {
     return [
       TestStep(
         label: 'Setup Validation',
+        instruction: "Point your camera at any item to test object detection.",
         targetLabel: 'setup',
         targetTime: 3.0,
         maxTime: 10.0,
@@ -173,6 +175,7 @@ class ChairStandTestController extends BaseTestController {
       ),
       TestStep(
         label: 'Chair Detection',
+        instruction: "Point your camera at a chair to test chair detection.",
         targetLabel: 'chair',
         targetTime: 2.0,
         maxTime: 10.0,
@@ -180,6 +183,7 @@ class ChairStandTestController extends BaseTestController {
       ),
       TestStep(
         label: 'Person Detection',
+        instruction: "Point your camera at yourself to test pose detection.",
         targetLabel: 'person',
         targetTime: 2.0,
         maxTime: 15.0,
@@ -187,6 +191,8 @@ class ChairStandTestController extends BaseTestController {
       ),
       TestStep(
         label: 'Chair Stand Test',
+        instruction:
+            "Slowly sit and stand in front of the camera, ensuring as much of your body is as visibile as possible.",
         targetLabel: 'chair_stand',
         targetTime: maxTestTime * 0.5,
         maxTime: maxTestTime,
@@ -194,6 +200,7 @@ class ChairStandTestController extends BaseTestController {
       ),
       TestStep(
         label: 'Results Analysis',
+        instruction: "Please wait as the results are analyzed.",
         targetLabel: 'results',
         targetTime: 2.0,
         maxTime: 5.0,
@@ -218,7 +225,7 @@ class ChairStandTestController extends BaseTestController {
       case SPPBTestPhase.detectPerson:
         return _validatePersonDetection(objectDetections);
       case SPPBTestPhase.chairStandTest:
-        return _processValidateChairStandDetection(poseDetections);
+        return _validateChairStandDetection(poseDetections);
       case SPPBTestPhase.results:
         return _validateResultsPhase(analysisDetections, currentStep);
     }
@@ -249,8 +256,9 @@ class ChairStandTestController extends BaseTestController {
     return result;
   }
 
-  bool _processValidateChairStandDetection(List<DetectionResult> detections) {
+  bool _validateChairStandDetection(List<DetectionResult> detections) {
     print('  Chair stand test: Processing ${detections.length} detections');
+    yoloService.updateDetections([]);
     final landmarks = poseService.extractLandmarks(detections);
 
     if (landmarks.isNotEmpty) {
@@ -266,11 +274,8 @@ class ChairStandTestController extends BaseTestController {
 
       // Check for test completion or timeout
       if (_currentMetrics != null && _testStartTime != null) {
-        final elapsed = DateTime.now().difference(_testStartTime!).inSeconds;
-        if (_currentMetrics!.completedRepetitions >= targetRepetitions ||
-            elapsed >= maxTestTime) {
-          print(
-              '  Test should complete: reps=${_currentMetrics!.completedRepetitions}, elapsed=${elapsed}s');
+        if (_currentMetrics!.completedRepetitions >= targetRepetitions) {
+          currentStep?.detectedFrameCount = 1000;
         }
       }
 
@@ -318,24 +323,6 @@ class ChairStandTestController extends BaseTestController {
         return 0.6 + (0.3 * (metrics.completedRepetitions / targetRepetitions));
       case SPPBTestPhase.results:
         return 1.0;
-    }
-  }
-
-  @override
-  String get currentStepInstructions {
-    switch (_currentPhase) {
-      case SPPBTestPhase.setup:
-        return 'Setting up test environment...';
-      case SPPBTestPhase.detectChair:
-        return 'Please position yourself in front of a chair. The chair should be clearly visible in the camera.';
-      case SPPBTestPhase.detectPerson:
-        return 'Sit down in the chair. Make sure your full body is visible in the camera.';
-      case SPPBTestPhase.chairStandTest:
-        final metrics = _currentMetrics;
-        final completed = metrics?.completedRepetitions ?? 0;
-        return 'Stand up and sit down 5 times as quickly as possible. Completed: $completed/5';
-      case SPPBTestPhase.results:
-        return 'Test completed! Analyzing your performance...';
     }
   }
 
