@@ -53,6 +53,9 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   // UI state
   bool _isInitialized = false;
   String _statusMessage = 'Initializing...';
+  // Temporary centered message state (set when controller pushes a message)
+  String? _centerMessage;
+  Timer? _centerMessageTimer;
 
   @override
   void initState() {
@@ -185,6 +188,14 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     setState(() {});
     _updateInstructionVideo();
     _updateProgress();
+    // If the test controller pushed a display message, show it for 1.5s
+    final msg = _testController?.displayMessage;
+    if (msg != null && msg.isNotEmpty) {
+      // Use local helper to show centered message
+      showCenterMessage(msg, duration: const Duration(milliseconds: 1500));
+      // Clear the controller's message so we don't show it again
+      _testController?.displayMessage = null;
+    }
   }
 
   void _onTestComplete() {
@@ -356,6 +367,27 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     _updateInstructionVideo();
   }
 
+  /// Temporarily shows a centered message on screen.
+  ///
+  /// Example: showCenterMessage('Hold the pill', duration: Duration(seconds: 2));
+  void showCenterMessage(String message, {Duration duration = const Duration(seconds: 2)}) {
+    // Cancel any existing timer so messages don't overlap
+    _centerMessageTimer?.cancel();
+
+    if (!mounted) return;
+
+    setState(() {
+      _centerMessage = message;
+    });
+
+    _centerMessageTimer = Timer(duration, () {
+      if (!mounted) return;
+      setState(() {
+        _centerMessage = null;
+      });
+    });
+  }
+
   void _startTest() {
     if (_testController != null && _isInitialized) {
       _testController!.startTest();
@@ -388,6 +420,9 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
 
     // Dispose test controller (this should also stop any ongoing detection)
     _testController?.dispose();
+
+    // Cancel any pending center message timer
+    _centerMessageTimer?.cancel();
 
     super.dispose();
   }
@@ -429,6 +464,37 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
           ),
           // Detection overlays (landmarks only - no bounding boxes for objects)
           _buildDetectionOverlays(),
+          // Centered temporary message (from controller)
+          Positioned.fill(
+            child: IgnorePointer(
+              ignoring: _centerMessage == null,
+              child: AnimatedOpacity(
+                opacity: _centerMessage == null ? 0.0 : 1.0,
+                duration: const Duration(milliseconds: 200),
+                child: Center(
+                  child: _centerMessage == null
+                      ? const SizedBox.shrink()
+                      : Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.black87,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.white24),
+                          ),
+                          child: Text(
+                            _centerMessage ?? '',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                ),
+              ),
+            ),
+          ),
           // UI overlay
           _buildUIOverlay(),
         ],

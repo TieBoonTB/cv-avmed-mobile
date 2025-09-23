@@ -74,12 +74,6 @@ class ChairStandTestController extends BaseTestController {
           yoloService.updateDetections(objectResults);
           break;
         case SPPBTestPhase.detectPerson:
-          // Use YOLOv5 for person detection phase
-          final personResults = await _runObjectDetectionOnFrame(cameraImage,
-              isFrontCamera: isFrontCamera);
-          // Update the service detections
-          yoloService.updateDetections(personResults);
-          break;
         case SPPBTestPhase.chairStandTest:
           // Use pose detector for stand test phase
           final poseResults = await _runPoseDetectionOnFrame(cameraImage,
@@ -226,7 +220,7 @@ class ChairStandTestController extends BaseTestController {
       case SPPBTestPhase.detectChair:
         return _validateChairDetection(objectDetections);
       case SPPBTestPhase.detectPerson:
-        return _validatePersonDetection(objectDetections);
+        return _validatePersonDetection(poseDetections);
       case SPPBTestPhase.chairStandTest:
         return _validateChairStandDetection(poseDetections);
       case SPPBTestPhase.results:
@@ -254,9 +248,37 @@ class ChairStandTestController extends BaseTestController {
   bool _validatePersonDetection(List<DetectionResult> detections) {
     print(
         '  Person detection: Looking for person pose in ${detections.length} detections');
-    final result = validatePersonPosition(detections);
-    print('  Person detection result: $result');
-    return result;
+    
+    final landmarks = poseService.extractLandmarks(detections);
+
+    // Ensure key landmarks are detected for chair stand test
+    final requiredLandmarks = [
+      'left_hip',
+      'right_hip',
+      'left_knee',
+      'right_knee'
+    ];
+    final missingLandmarks = <String>[];
+
+    for (final landmark in requiredLandmarks) {
+      if (!landmarks.containsKey(landmark)) {
+        missingLandmarks.add(landmark);
+      }
+    }
+
+    if (missingLandmarks.isNotEmpty) {
+      print(
+          'Person validation failed: Missing landmarks: ${missingLandmarks.join(', ')}');
+      return false;
+    }
+
+    // Additional validation: check if person is facing the camera
+    final hasShoulders = landmarks.containsKey('left_shoulder') &&
+        landmarks.containsKey('right_shoulder');
+
+    print(
+        'Person validation: Found ${landmarks.length} landmarks, has shoulders: $hasShoulders');
+    return hasShoulders;
   }
 
   bool _validateChairStandDetection(List<DetectionResult> detections) {
@@ -266,7 +288,7 @@ class ChairStandTestController extends BaseTestController {
 
     if (landmarks.isNotEmpty) {
       print('  Found ${landmarks.length} landmarks, analyzing movement...');
-      analysisService.analyzeMovement(
+      final analysisResult = analysisService.analyzeMovement(
         landmarks: landmarks,
         timestamp: DateTime.now(),
       );
@@ -275,28 +297,17 @@ class ChairStandTestController extends BaseTestController {
       print(
           '  Completed repetitions: ${_currentMetrics?.completedRepetitions ?? 0}');
 
-      // Quick: check analysis detections for a repetition message
-      // Accept common variants: 'repetition detected', 'repetition_detected'
-      final latestAnalysisDetections = analysisDetections;
-      final repetitionMsg = latestAnalysisDetections.firstWhere(
-          (d) =>
-              d.label.toLowerCase().contains('repetition') &&
-              d.label.toLowerCase().contains('detect'),
-          orElse: () => DetectionResult(
-              label: '',
-              confidence: 0.0,
-              box: const DetectionBox(x: 0, y: 0, width: 0, height: 0)));
-
-      if (repetitionMsg.label.isNotEmpty) {
+      // React to explicit repetition flag returned by the analysis service
+      if (analysisResult.repDetected) {
         final now = DateTime.now();
-        // Debounce: avoid reacting more than once within 700 ms
+        // Debounce: avoid reacting more than once within 500 ms
         if (_lastRepReactionTime == null ||
             now.difference(_lastRepReactionTime!).inMilliseconds > 500) {
           _lastRepReactionTime = now;
           _lastSeenRepCount =
               _currentMetrics?.completedRepetitions ?? _lastSeenRepCount + 1;
-          // Trigger the step-complete visual/audio reaction
-          onStepComplete?.call(true);
+          // Also push a short UI message so the camera page can render feedback
+          pushDisplayMessage('You have completed ${_currentMetrics?.completedRepetitions}/${targetRepetitions} repetitions.');
         }
       }
       // Check for test completion or timeout
@@ -453,39 +464,6 @@ class ChairStandTestController extends BaseTestController {
     return isValidPosition;
   }
 
-  /// Validate person positioning for person detection phase
-  /// Filters YOLOv5 results for person detection with position validation
-  bool validatePersonPosition(List<DetectionResult> detections) {
-    final persons =
-        detections.where((d) => d.label.toLowerCase() == 'person').toList();
-
-    if (persons.isEmpty) {
-      print('Person validation failed: No persons detected');
-      return false;
-    }
-
-    // Debug: list all candidate persons found
-    print('Person validation: found ${persons.length} candidate(s)');
-    for (var i = 0; i < persons.length; i++) {
-      final p = persons[i];
-      print(
-          '  candidate[$i]: confidence=${p.confidence.toStringAsFixed(3)}, box=${p.box}');
-    }
-
-    // Check person is reasonably positioned and has good confidence
-    final person = persons.first;
-    final centerX = person.box.x + person.box.width / 2;
-    final centerY = person.box.y + person.box.height / 2;
-
-    // Person should be reasonably centered and have good confidence
-    final bool inHorizontal = centerX > 0.2 && centerX < 0.8;
-    final bool inVertical = centerY > 0.2 && centerY < 0.9;
-    final bool hasConfidence = person.confidence > 0.5;
-
-    final isValidPosition = inHorizontal && inVertical && hasConfidence;
-    return isValidPosition;
-  }
-
   Future<void> stopTest() async {
     _currentPhase = SPPBTestPhase.results;
     onTestUpdate?.call();
@@ -520,7 +498,7 @@ class BalanceTestController extends BaseTestController {
   @override
   Map<String, BaseDetectionService> createDetectionServices() {
     return {
-      'pose': PoseDetectionService(),
+      'pose': MLKitPoseDetectionService(),
     };
   }
 
@@ -583,7 +561,7 @@ class GaitTestController extends BaseTestController {
   @override
   Map<String, BaseDetectionService> createDetectionServices() {
     return {
-      'pose': PoseDetectionService(),
+      'pose': MLKitPoseDetectionService(),
     };
   }
 
@@ -611,7 +589,7 @@ class GaitTestController extends BaseTestController {
     return [
       TestStep(
         label: 'Setup Walking Path',
-        targetLabel: 'gait_setup',
+        targetLabel: 'gait_setup', 
         targetTime: 5.0,
         maxTime: 10.0,
         confidenceThreshold: 0.8,

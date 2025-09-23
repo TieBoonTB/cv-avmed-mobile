@@ -29,6 +29,8 @@ abstract class BaseTestController {
   int _currentStepIndex = 0;
   bool _isDisposed = false; // Add disposal flag
   bool _isProcessing = false; // Add processing flag for frame skipping
+  // Optional single display message that UI can read and render temporarily
+  String? displayMessage;
 
   BaseTestController({
     required this.isTrial,
@@ -396,6 +398,14 @@ abstract class BaseTestController {
     if (!_isDisposed && callback != null) {
       callback();
     }
+  }
+
+  /// Push a temporary message to be displayed by the UI.
+  /// The message is stored in [displayMessage] and [onTestUpdate] is invoked
+  /// so listeners (like the camera page) can react and show it.
+  void pushDisplayMessage(String message) {
+    displayMessage = message;
+    _safeCallback(onTestUpdate);
   }
 
   /// Safe step complete callback invocation

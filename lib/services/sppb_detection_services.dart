@@ -1,156 +1,7 @@
 import '../services/base_detection_service.dart';
 import '../models/base_model.dart';
-import '../models/mediapipe_pose_model.dart';
 import '../types/detection_types.dart';
 import 'dart:typed_data';
-
-/// Pose detection service using MediaPipe pose_landmark_full model
-class PoseDetectionService extends BaseDetectionService {
-  final MediaPipePoseModel _model = MediaPipePoseModel();
-
-  @override
-  String get serviceType => 'Pose Detection Service (MediaPipe)';
-
-  @override
-  BaseModel? get currentModel => _model;
-
-  @override
-  Future<void> initialize() async {
-    try {
-      print('Initializing Pose Detection Service...');
-      await _model.initialize();
-      setInitialized(true);
-      print('Pose Detection Service initialized successfully');
-    } catch (e) {
-      print('Error initializing Pose Detection Service: $e');
-      setInitialized(false);
-      rethrow;
-    }
-  }
-
-  @override
-  Future<List<DetectionResult>> processFrame(
-      Uint8List frameData, int imageHeight, int imageWidth) async {
-    if (!isInitialized) {
-      throw StateError(
-          'Pose Detection Service not initialized. Call initialize() first.');
-    }
-
-    try {
-      final results =
-          await _model.processFrame(frameData, imageHeight, imageWidth);
-      print('Pose Detection: Found ${results.length} landmarks');
-      updateDetections(results);
-      return results;
-    } catch (e) {
-      print('Error processing frame in Pose Detection Service: $e');
-      return [DetectionResult.createError('Pose Detection', e.toString())];
-    }
-  }
-
-  /// Extract key body landmarks from detection results
-  Map<String, DetectionBox> extractLandmarks(List<DetectionResult> detections) {
-    final landmarks = <String, DetectionBox>{};
-
-    // MediaPipe pose model provides 33 landmarks, we focus on key ones for chair stand test
-    for (final detection in detections) {
-      if ([
-        'left_hip',
-        'right_hip',
-        'left_knee',
-        'right_knee',
-        'left_shoulder',
-        'right_shoulder',
-        'left_ankle',
-        'right_ankle'
-      ].contains(detection.label)) {
-        landmarks[detection.label] = detection.box;
-      }
-    }
-
-    return landmarks;
-  }
-
-  /// Check if person is properly positioned for test
-  bool validatePersonPosition(List<DetectionResult> detections) {
-    final landmarks = extractLandmarks(detections);
-
-    // Ensure key landmarks are detected for chair stand test
-    final requiredLandmarks = [
-      'left_hip',
-      'right_hip',
-      'left_knee',
-      'right_knee'
-    ];
-    final missingLandmarks = <String>[];
-
-    for (final landmark in requiredLandmarks) {
-      if (!landmarks.containsKey(landmark)) {
-        missingLandmarks.add(landmark);
-      }
-    }
-
-    if (missingLandmarks.isNotEmpty) {
-      print(
-          'Person validation failed: Missing landmarks: ${missingLandmarks.join(', ')}');
-      return false;
-    }
-
-    // Additional validation: check if person is facing the camera
-    final hasShoulders = landmarks.containsKey('left_shoulder') &&
-        landmarks.containsKey('right_shoulder');
-
-    print(
-        'Person validation: Found ${landmarks.length} landmarks, has shoulders: $hasShoulders');
-    return hasShoulders;
-  }
-
-  /// Calculate hip angle from MediaPipe landmarks
-  double? calculateHipAngle(Map<String, DetectionBox> landmarks) {
-    final leftHip = landmarks['left_hip'];
-    final rightHip = landmarks['right_hip'];
-    final leftKnee = landmarks['left_knee'];
-    final rightKnee = landmarks['right_knee'];
-    final leftShoulder = landmarks['left_shoulder'];
-    final rightShoulder = landmarks['right_shoulder'];
-
-    if (leftHip == null ||
-        rightHip == null ||
-        leftKnee == null ||
-        rightKnee == null ||
-        leftShoulder == null ||
-        rightShoulder == null) {
-      return null;
-    }
-
-    // Calculate average positions for more stable measurements
-    final avgHipY = (leftHip.y + rightHip.y) / 2;
-    final avgKneeY = (leftKnee.y + rightKnee.y) / 2;
-    final avgShoulderY = (leftShoulder.y + rightShoulder.y) / 2;
-
-    // Calculate hip angle based on relative positions
-    // When sitting: hip is above knee, angle is smaller
-    // When standing: hip and knee are more aligned, angle is larger
-    final hipKneeDistance = (avgKneeY - avgHipY).abs();
-    final shoulderHipDistance = (avgHipY - avgShoulderY).abs();
-
-    if (shoulderHipDistance == 0) return null;
-
-    final ratio = hipKneeDistance / shoulderHipDistance;
-
-    // Map ratio to realistic hip angle (90-180 degrees)
-    // This is a simplified calculation - in practice, you'd use proper vector math
-    final angle = 90.0 + (ratio * 90.0).clamp(0.0, 90.0);
-
-    return angle;
-  }
-
-  @override
-  void dispose() {
-    _model.dispose();
-    super.dispose();
-  }
-}
 
 /// Clinical analysis service for SPPB assessment
 class SPPBAnalysisService extends BaseDetectionService {
@@ -235,34 +86,12 @@ class SPPBAnalysisService extends BaseDetectionService {
     print(
         'SPPB DEBUG: hipAngle=${hipAngle.toStringAsFixed(1)}, previous=${previousAngle.toStringAsFixed(1)}, phase=$movementPhase');
 
-    // Detect completed repetitions (returns whether a new repetition was counted)
-    final bool repDetected = _detectRepetitions(movementPhase, timestamp);
+  // Detect completed repetitions (returns whether a new repetition was counted)
+  final bool repDetected = _detectRepetitions(movementPhase, timestamp);
 
     // Calculate clinical metrics
     _updateClinicalMetrics(timestamp);
 
-    // Publish recent movement-phase "detections" so controller/UI can react
-    try {
-      final List<DetectionResult> phaseDetections = [];
-
-      // If a repetition was detected during this analysis call, include a
-      // explicit detection entry so controllers/UI can react to the event
-      // atomically along with the other phase detections.
-      if (repDetected) {
-        phaseDetections.insert(
-            0,
-            DetectionResult(
-              label: 'repetition_detected',
-              confidence: 1.0,
-              box: const DetectionBox(x: 0.0, y: 0.0, width: 0.0, height: 0.0),
-            ));
-      }
-
-      // Push these into the service cache so callers can read them via getDetections()/lastDetections
-      updateDetections(phaseDetections);
-    } catch (e) {
-      print('SPPB Analysis: failed to publish phase detections: $e');
-    }
 
     return SPPBAnalysisResult(
       hipAngle: hipAngle,
@@ -272,6 +101,7 @@ class SPPBAnalysisService extends BaseDetectionService {
       repetitionTimes: List.from(_repetitionTimes),
       movementSmoothness: _movementSmoothness,
       isValidPosition: true,
+      repDetected: repDetected,
     );
   }
 
@@ -389,7 +219,6 @@ class SPPBAnalysisService extends BaseDetectionService {
       _movementPhaseHistory.clear();
 
       // Return true so caller (analyzeMovement) can publish an explicit
-      // 'repetition_detected' detection as part of the phaseDetections.
       return true;
     }
 
@@ -456,6 +285,8 @@ class SPPBAnalysisResult {
   final List<double> repetitionTimes;
   final double movementSmoothness;
   final bool isValidPosition;
+  // Whether a repetition was detected during the last analysis call
+  final bool repDetected;
 
   SPPBAnalysisResult({
     required this.hipAngle,
@@ -465,6 +296,7 @@ class SPPBAnalysisResult {
     required this.repetitionTimes,
     required this.movementSmoothness,
     required this.isValidPosition,
+    required this.repDetected,
   });
 
   factory SPPBAnalysisResult.invalid() {
@@ -476,6 +308,7 @@ class SPPBAnalysisResult {
       repetitionTimes: [],
       movementSmoothness: 0.0,
       isValidPosition: false,
+      repDetected: false,
     );
   }
 }
