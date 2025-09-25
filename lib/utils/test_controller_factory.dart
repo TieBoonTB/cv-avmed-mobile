@@ -1,82 +1,30 @@
-import '../controllers/base_test_controller.dart';
-import '../controllers/mock_test_controller.dart';
-import '../controllers/object_detection_test_controller.dart';
-import '../controllers/avmed_test_controller.dart';
-import '../controllers/sppb_test_controllers.dart';
 import 'package:flutter/material.dart';
+import '../controllers/base_test_controller.dart';
+import '../controllers/test_controller_object_detector.dart';
+import '../controllers/test_controller_sppb_chair_stand.dart';
 
-/// Factory for creating test controllers
-/// This makes it easy to add new test types without modifying the camera page
+/// Enum of supported test types. Use this instead of raw strings to make the
+/// API safer and less error-prone.
+enum TestType { objectDetector, sppbChairStand }
+
+/// Factory for creating test controllers. Accepts a [TestType] enum value.
 class TestControllerFactory {
-  /// Available test types
-  static const String mockTest = 'mock';
-  static const String objectDetectionTest = 'objects';
-  static const String avmedTest = 'avmed';
-  static const String chairStandTest = 'chair-stand';
-  static const String balanceTest = 'balance';
-  static const String gaitTest = 'gait';
 
-  /// Create a test controller based on type
   static BaseTestController createController({
-    required String testType,
-    required bool isTrial,
+    required TestType type,
     VoidCallback? onTestUpdate,
     VoidCallback? onTestComplete,
     Function(bool isSuccess)? onStepComplete,
   }) {
-    switch (testType.toLowerCase()) {
-      case mockTest:
-        return MockTestController(
-          isTrial: isTrial,
+    switch (type) {
+      case TestType.objectDetector:
+        return TestControllerObjectDetector(
           onTestUpdate: onTestUpdate,
           onTestComplete: onTestComplete,
           onStepComplete: onStepComplete,
         );
-
-      case objectDetectionTest:
-        return ObjectDetectionTestController(
-          isTrial: isTrial,
-          onTestUpdate: onTestUpdate,
-          onTestComplete: onTestComplete,
-          onStepComplete: onStepComplete,
-        );
-
-      case avmedTest:
-        return AVMedTestController(
-          isTrial: isTrial,
-          onTestUpdate: onTestUpdate,
-          onTestComplete: onTestComplete,
-          onStepComplete: onStepComplete,
-        );
-
-      case chairStandTest:
-        return ChairStandTestController(
-          isTrial: isTrial,
-          onTestUpdate: onTestUpdate,
-          onTestComplete: onTestComplete,
-          onStepComplete: onStepComplete,
-        );
-
-      case balanceTest:
-        return BalanceTestController(
-          isTrial: isTrial,
-          onTestUpdate: onTestUpdate,
-          onTestComplete: onTestComplete,
-          onStepComplete: onStepComplete,
-        );
-
-      case gaitTest:
-        return GaitTestController(
-          isTrial: isTrial,
-          onTestUpdate: onTestUpdate,
-          onTestComplete: onTestComplete,
-          onStepComplete: onStepComplete,
-        );
-
-      default:
-        // Default to mock test for unknown types
-        return MockTestController(
-          isTrial: isTrial,
+      case TestType.sppbChairStand:
+        return TestControllerSPPBChairStand(
           onTestUpdate: onTestUpdate,
           onTestComplete: onTestComplete,
           onStepComplete: onStepComplete,
@@ -84,54 +32,29 @@ class TestControllerFactory {
     }
   }
 
-  /// Get display name for test type
-  static String getTestDisplayName(String testType) {
-    switch (testType.toLowerCase()) {
-      case mockTest:
-        return 'Mock Detection Test';
-      case objectDetectionTest:
+  /// Human-friendly display name
+  static String getTestDisplayName(TestType type) {
+    switch (type) {
+      case TestType.objectDetector:
         return 'Object Detection Test (YOLOv5)';
-      case avmedTest:
-        return 'AVMED Medication Adherence Test';
-      case chairStandTest:
-        return 'Chair Stand Test (SPPB)';
-      case balanceTest:
-        return 'Balance Test (SPPB)';
-      case gaitTest:
-        return 'Gait Speed Test (SPPB)';
-      default:
-        return 'Unknown Test';
+      case TestType.sppbChairStand:
+        return 'SPPB Chair Stand Test';
     }
   }
 
-  /// Get description for test type
-  static String getTestDescription(String testType) {
-    switch (testType.toLowerCase()) {
-      case mockTest:
-        return 'Test with simulated detection results for development and testing';
-      case objectDetectionTest:
+  /// Short description for UI
+  static String getTestDescription(TestType type) {
+    switch (type) {
+      case TestType.objectDetector:
         return 'Real object detection using YOLOv5 model - show different objects';
-      case avmedTest:
-        return 'Medication adherence monitoring using dual model AI detection (pill, mouth, face detection)';
-      case chairStandTest:
-        return 'Chair stand assessment for lower body strength using YOLOv5 + MediaPipe pose detection';
-      case balanceTest:
-        return 'Balance assessment with side-by-side, semi-tandem, and tandem stands';
-      case gaitTest:
-        return 'Gait speed assessment using computer vision movement tracking';
-      default:
-        return 'Unknown test type';
+      case TestType.sppbChairStand:
+        return 'Chair stand functional test using pose and object detection';
     }
   }
 
   /// Get all available test types
-  static List<String> getAvailableTestTypes() {
-    // return [mockTest, objectDetectionTest, avmedTest, chairStandTest, balanceTest, gaitTest];
-    return [objectDetectionTest, chairStandTest];
-  }
+  static List<TestType> getAvailableTestTypes() => TestType.values;
 
-  /// Check if a test type is valid
-  static bool isValidTestType(String testType) {
-    return getAvailableTestTypes().contains(testType.toLowerCase());
-  }
+  /// Check if a test type is valid (always true for enum values)
+  static bool isValidTestType(TestType type) => TestType.values.contains(type);
 }

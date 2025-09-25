@@ -1,98 +1,106 @@
-import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-import 'dart:async';
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import '../services/base_detection_service.dart';
 import '../types/detection_types.dart';
 import '../utils/camera_image_utils.dart';
 
-/// Abstract base class for all test controllers
-/// Provides common test management functionality that can be extended
-/// for different types of tests using different detection services
 abstract class BaseTestController {
-  final bool isTrial;
+  Map<String, BaseDetectionService> _detectionServices = {};
+  Map<String, List<DetectionResult>> _lastDetections = {};
+  
+  bool _isProcessing = false;
+  bool _isDisposed = false;
+
+  // Test steps and running state
+  List<TestStep>? _testSteps;
+  bool _isTestRunning = false;
+  bool _isTestComplete = false;
+  int _currentStepIndex = 0;
+  // Preferred interval (milliseconds) that callers should use when scheduling
+  double _frameProcessingIntervalMs = 500.0;
+  
+  // Callbacks for ui functions
   final VoidCallback? onTestUpdate;
   final VoidCallback? onTestComplete;
   final Function(bool isSuccess)? onStepComplete;
 
-  // Support for multiple detection services
-  Map<String, BaseDetectionService> _detectionServices = {};
-  late Map<String, List<DetectionResult>> _lastDetections;
-
-  // Cached test steps to preserve state during test execution
-  List<TestStep>? _cachedTestSteps;
-
-  // Test state
-  bool _hasTestStarted = false;
-  bool _isTestRunning = false;
-  bool _isCompleted = false;
-  int _currentStepIndex = 0;
-  bool _isDisposed = false; // Add disposal flag
-  bool _isProcessing = false; // Add processing flag for frame skipping
-  // Optional single display message that UI can read and render temporarily
+  /// Optional transient message intended for UI display. Subclasses or
+  /// test logic may call [pushDisplayMessage] to set this and notify the UI
   String? displayMessage;
 
+  // api
+  Set<String> get availableServiceKeys => _detectionServices.keys.toSet();
+  Map<String, BaseDetectionService> get detectionServices => _detectionServices;
+  Map<String, List<DetectionResult>> get lastDetections => _lastDetections;
+  bool get isDisposed => _isDisposed;
+  bool get isProcessing => _isProcessing;
+  bool get isTestRunning => _isTestRunning;
+  bool get isTestComplete => _isTestComplete;
+  int get currentStepIndex => _currentStepIndex;
+  /// Preferred frame processing interval in milliseconds. External code
+  /// (for example a Timer) should use this value when scheduling calls to
+  /// `processCurrentFrame`.
+  double get frameProcessingIntervalMs => _frameProcessingIntervalMs;
+  set frameProcessingIntervalMs(double ms) {
+    if (ms <= 0) return;
+    _frameProcessingIntervalMs = ms;
+  }
+
+
+  /// Abstract method that must be implemented by subclasses
+  /// Returns a map of service names to detection services
+  /// Example: {'pose': MLKitPoseService(), 'objects': YoloService()}
+  Map<String, BaseDetectionService> createDetectionServices();
+
+  /// Abstract method to create the list of TestSteps for this test
+  List<TestStep> createTestSteps();
+
   BaseTestController({
-    required this.isTrial,
     this.onTestUpdate,
     this.onTestComplete,
     this.onStepComplete,
-  }) {
-    _lastDetections = {};
-  }
-
-  // Abstract methods that must be implemented by subclasses
-
-  /// Get the detection services specific to this test type
-  /// Returns a map of service names to detection services
-  /// Example: {'pose': MLKitPoseService(), 'analysis': SPPBAnalysisService()}
-  Map<String, BaseDetectionService> createDetectionServices();
-
-  /// Get the list of test steps for this specific test
-  List<TestStep> createTestSteps();
-
-  /// Process detection results for the current step from multiple services
-  /// Returns true if the detections are valid for the current step
-  bool processDetectionResults(
-      Map<String, List<DetectionResult>> detectionsByService,
-      TestStep currentStep);
-
-  /// Optional: Custom logic when a step starts
-  Future<void> onStepStart(TestStep step) async {}
-
-  /// Optional: Custom logic when a step completes
-  Future<void> onStepEnd(TestStep step, bool isSuccess) async {}
-
-  // Common functionality provided by base class
+  });
 
   /// Initialize the test controller and its detection services
   Future<void> initialize() async {
+    if (_isDisposed) return;
+    
+    // Get detection services from subclass
     _detectionServices = createDetectionServices();
 
     // Initialize all detection services
-    for (final service in _detectionServices.values) {
+    for (final entry in _detectionServices.entries) {
+      final serviceKey = entry.key;
+      final service = entry.value;
+      
       await service.initialize();
-    }
-
-    // Initialize detection results map
-    for (final serviceKey in _detectionServices.keys) {
+      
+      // Initialize empty detection results for this service
       _lastDetections[serviceKey] = [];
     }
   }
 
-  /// Process a camera image through all detection services
-  /// This method should be called whenever a new camera frame is available
-  Future<void> processCameraFrame(CameraImage cameraImage,
-      {bool isFrontCamera = false}) async {
+  /// Process a camera frame through all detection services
+  /// Updates _lastDetections with results from each service
+  Future<void> processCurrentFrame(CameraImage cameraImage, {bool isFrontCamera = false}) async {
+    if (_isDisposed) return;
+
+    // If a processing job is already running, skip this frame to avoid backlog
+    if (_isProcessing) return;
+
+    _isProcessing = true;
     // Check if any services are initialized
     if (_detectionServices.values.every((service) => !service.isInitialized)) {
+      _isProcessing = false;
       return;
     }
 
     try {
       // Convert camera image to bytes
-      final imageBytes = CameraImageUtils.convertCameraImageToBytes(cameraImage,
-          isFrontCamera: isFrontCamera);
+      final imageBytes = CameraImageUtils.convertCameraImageToBytes(
+        cameraImage,
+        isFrontCamera: isFrontCamera,
+      );
 
       if (imageBytes.isNotEmpty) {
         // Process frame through all detection services
@@ -101,6 +109,7 @@ abstract class BaseTestController {
           final service = entry.value;
 
           if (service.isInitialized) {
+            // Process the frame
             await service.processFrame(
               imageBytes,
               cameraImage.height,
@@ -114,325 +123,244 @@ abstract class BaseTestController {
       }
     } catch (e) {
       print('Error processing camera frame: $e');
+    } finally {
+      _isProcessing = false;
+    }
+
+    // After processing the frame, if a test is running let subclasses handle the step logic
+    if (_isTestRunning) {
+      try {
+        await processTestStep();
+      } catch (e) {
+        print('Error in processTestStep: $e');
+      }
     }
   }
 
-  // Public API for accessing detection results
+  /// Subclasses should override this to implement step evaluation logic.
+  Future<void> processTestStep() async {
+    // Default implementation: check across all detection services whether the
+    // current step's targetLabel is present with sufficient confidence.
+    final step = currentStep;
+    if (step == null) return;
 
-  /// Get detections by service type
-  List<DetectionResult> getDetections(String serviceType) =>
-      _lastDetections[serviceType] ?? [];
+    // Only process active steps
+    if (!step.isActive) return;
 
-  /// Get all detection types available
-  Set<String> get availableDetectionTypes => _detectionServices.keys.toSet();
+    final target = step.targetLabel;
+    if (target == null || target.isEmpty) {
+      // Nothing to check for this step
+      return;
+    }
 
-  /// Check if all detection services have been initialized
-  bool get areAllServicesInitialized =>
-      _detectionServices.isNotEmpty &&
-      _detectionServices.values.every((service) => service.isInitialized);
+    final detections = getAllDetections();
 
-  /// Check if any detection services have been initialized
-  bool get isAnyServiceInitialized =>
-      _detectionServices.values.any((service) => service.isInitialized);
+    bool found = false;
+    for (final entry in detections.entries) {
+      for (final d in entry.value) {
+        if (d.label == target && d.confidence >= step.confidenceThreshold) {
+          found = true;
+          break;
+        }
+      }
+      if (found) break;
+    }
 
-  /// Get initialization status for each service
-  Map<String, bool> get serviceInitializationStatus =>
-      Map.fromEntries(_detectionServices.entries
-          .map((entry) => MapEntry(entry.key, entry.value.isInitialized)));
-
-  /// Convenience getters for common types
-  List<DetectionResult> get poseDetections => getDetections('pose');
-  List<DetectionResult> get analysisDetections => getDetections('analysis');
-  List<DetectionResult> get objectDetections => getDetections('objects');
-
-  /// Get all detection services
-  Map<String, BaseDetectionService> get detectionServices =>
-      Map.unmodifiable(_detectionServices);
-
-  /// Test state getters
-  bool get hasTestStarted => _hasTestStarted;
-  bool get isTestRunning => _isTestRunning;
-  bool get isCompleted => _isCompleted;
-  int get currentStepIndex => _currentStepIndex;
-
-  /// Get completion statistics
-  int get completedStepsCount => testSteps.where((step) => step.isDone).length;
-  int get successfulStepsCount =>
-      testSteps.where((step) => step.isSuccess).length;
-  double get overallProgress => testSteps.isEmpty
-      ? 0.0
-      : testSteps.map((step) => step.progress).reduce((a, b) => a + b) /
-          testSteps.length;
-
-  /// Get all test steps
-  List<TestStep> get testSteps {
-    _cachedTestSteps ??= createTestSteps();
-    return _cachedTestSteps!;
+    // Delegate handling of the detection outcome to a protected helper.
+    processStepDetectionResult(step, found);
   }
 
-  /// Get current active step
+  /// Handle the outcome of detection for a step. Called with 
+  /// [found]==true when a successful detection was observed. 
+  /// This updates detection counters, notifies callbacks and advances/completes steps when their
+  /// criteria are met. 
+  @protected
+  void processStepDetectionResult(TestStep step, bool found) {
+    if (found) {
+      step.incrementDetections();
+      safeCallback(onTestUpdate);
+    }
+
+    // Advance or complete step based on results
+    if (step.isTargetReached) {
+      step.complete(success: true);
+      safeStepCallback(onStepComplete, true);
+      safeCallback(onTestUpdate);
+      _advanceToNextStep();
+    } else if (step.isTimedOut) {
+      step.complete(success: false);
+      safeStepCallback(onStepComplete, false);
+      safeCallback(onTestUpdate);
+      _advanceToNextStep();
+    }
+  }
+
+  /// Get detections from a specific service
+  List<DetectionResult> getDetections(String serviceKey) {
+    return _lastDetections[serviceKey] ?? [];
+  }
+
+  /// Get all detection results from all services
+  Map<String, List<DetectionResult>> getAllDetections() {
+    return Map.unmodifiable(_lastDetections);
+  }
+
+  /// Clear all cached detection results. This will reset the internal `_lastDetections` map
+  void clearDetections() {
+    if (_isDisposed) return;
+    _lastDetections.clear();
+    for (final key in _detectionServices.keys) {
+      _lastDetections[key] = [];
+    }
+    safeCallback(onTestUpdate);
+  }
+
+  /// Test steps managed by this controller (created on first access)
+  List<TestStep> get testSteps {
+    _testSteps ??= createTestSteps();
+    return _testSteps!;
+  }
+
+  /// Current active TestStep or null if index out of range
   TestStep? get currentStep {
     final steps = testSteps;
-    if (_currentStepIndex < steps.length) {
+    if (_currentStepIndex >= 0 && _currentStepIndex < steps.length) {
       return steps[_currentStepIndex];
     }
     return null;
   }
 
-  /// Start the test sequence
+  /// Start the test sequence. Marks the first step active.
   void startTest() {
-    if (_hasTestStarted) return;
-
-    _hasTestStarted = true;
+    if (_isTestRunning) return;
+    _testSteps ??= createTestSteps();
     _isTestRunning = true;
+    _isTestComplete = false;
     _currentStepIndex = 0;
-
-    final steps = testSteps;
-    if (steps.isNotEmpty) {
-      steps[0].isActive = true;
+    if (_testSteps!.isNotEmpty) {
+      _testSteps![0].start();
     }
-
-    _safeCallback(onTestUpdate);
-    _runTestSequence();
+    safeCallback(onTestUpdate);
   }
 
-  /// Run the complete test sequence
-  Future<void> _runTestSequence() async {
-    final steps = testSteps;
-
-    for (int i = 0; i < steps.length; i++) {
-      if (!_isTestRunning) break;
-
-      _currentStepIndex = i;
-      final step = steps[i];
-
-      // Reset previous step
-      if (i > 0) {
-        steps[i - 1].isActive = false;
-      }
-
-      // Activate current step
-      step.isActive = true;
-      _safeCallback(onTestUpdate);
-
-      // Custom step start logic
-      await onStepStart(step);
-
-      // Run step with detection logic
-      bool isSuccess = await _runStepWithDetection(step);
-
-      if (_isTestRunning) {
-        step.isActive = false;
-        step.isDone = true;
-        step.isSuccess = isSuccess;
-
-        // Custom step end logic
-        await onStepEnd(step, isSuccess);
-
-        _safeCallback(onTestUpdate);
-        _safeStepCallback(onStepComplete, isSuccess);
-      }
-    }
-
-    if (_isTestRunning) {
-      await endTest();
-    }
+  /// Returns time remaining for the current step as a percentage (0-100).
+  /// Returns -1.0 if the current step is not timed or not started.
+  double getCurrentStepTimeRemainingPercent() {
+    final step = currentStep;
+    if (step == null) return -1.0;
+    return step.timeRemainingPercent();
   }
 
-  /// Run a single step with detection logic
-  Future<bool> _runStepWithDetection(TestStep step) async {
-    step.detectedFrameCount = 0;
-
-    // Start step timer
-    final stepStartTime = DateTime.now();
-    final maxDuration = Duration(milliseconds: (step.maxTime * 1000).round());
-
-    // Set up detection timer with frame skipping (method 2)
-    Timer? detectionTimer;
-    bool stepCompleted = false;
-
-    try {
-      // Create timer that fires every 500ms, but skips if processing
-      detectionTimer =
-          Timer.periodic(const Duration(milliseconds: 500), (timer) async {
-        // Check if step should continue
-        if (!_isTestRunning ||
-            stepCompleted ||
-            DateTime.now().difference(stepStartTime) >= maxDuration) {
-          timer.cancel();
-          return;
-        }
-
-        // Skip this detection cycle if previous one is still processing
-        if (!_isProcessing) {
-          await _processDetectionForStep(step);
-
-          // Check if target is reached after processing
-          if (step.isTargetReached) {
-            stepCompleted = true;
-            timer.cancel();
-          }
-        }
-      });
-
-      // Wait for either completion or timeout
-      while (_isTestRunning &&
-          !stepCompleted &&
-          DateTime.now().difference(stepStartTime) < maxDuration) {
-        await Future.delayed(const Duration(milliseconds: 100));
-      }
-    } finally {
-      detectionTimer?.cancel();
-    }
-
-    // Consider a step successful if it reached the target OR made significant progress (75%+)
-    const double minimumProgressForSuccess = 0.75;
-    final hasSignificantProgress = step.progress >= minimumProgressForSuccess;
-
-    return stepCompleted || hasSignificantProgress;
-  }
-
-  /// Process detection for a single step (with frame skipping protection)
-  Future<void> _processDetectionForStep(TestStep step) async {
-    if (_isProcessing) return;
-    _isProcessing = true;
-
-    try {
-      Map<String, List<DetectionResult>> allDetections = {};
-
-      for (final entry in _detectionServices.entries) {
-        final serviceKey = entry.key;
-        final service = entry.value;
-        List<DetectionResult> detections = [];
-
-        if (service.serviceType.contains('Mock')) {
-          // For mock detection service, generate fresh detections each time
-          try {
-            // Create dummy frame data for mock processing
-            final dummyFrameData = Uint8List(100); // Mock frame data
-            detections = await service.processFrame(dummyFrameData, 480, 640);
-          } catch (e) {
-            print('Error processing mock frame for $serviceKey: $e');
-            detections = [];
-          }
-        } else {
-          // For real detection services, use cached results from camera frame processing
-          // This ensures we don't interfere with the camera frame processing pipeline
-          detections = await service.getCurrentDetections();
-
-          // If cache is empty and this is a real detection service,
-          // it might indicate camera frame processing isn't working
-          if (detections.isEmpty) {
-            print(
-                'Warning: No detections in cache for ${service.serviceType} ($serviceKey)');
-          }
-        }
-
-        allDetections[serviceKey] = detections;
-        _lastDetections[serviceKey] = detections; // Update cached results
-      }
-
-      // Process detections using subclass-specific logic (new multi-service method)
-      if (processDetectionResults(allDetections, step)) {
-        step.detectedFrameCount++;
-        _safeCallback(onTestUpdate);
-      }
-    } catch (e) {
-      print('Error processing detection for step: $e');
-    } finally {
-      _isProcessing = false;
-    }
-  }
-
-  /// End the test
-  Future<void> endTest() async {
+  /// Stop the test sequence
+  void stopTest() {
     _isTestRunning = false;
-    _isCompleted = true;
-
-    _safeCallback(onTestUpdate);
-    _safeCallback(onTestComplete);
-  }
-
-  /// Reset the test to initial state
-  void resetTest() {
-    _hasTestStarted = false;
-    _isTestRunning = false;
-    _isCompleted = false;
+    final cs = currentStep;
+    if (cs != null) {
+      cs.isActive = false;
+    }
     _currentStepIndex = 0;
+    safeCallback(onTestUpdate);
+  }
 
-    // Clear cached test steps to force recreation on next access
-    _cachedTestSteps?.clear();
-    _cachedTestSteps = null;
-
-    for (var step in testSteps) {
-      step.isActive = false;
-      step.isDone = false;
-      step.isSuccess = false;
-      step.detectedFrameCount = 0;
+  /// Advance to the next step in the sequence. If there are no more steps,
+  /// the test will be stopped.
+  void _advanceToNextStep() {
+    final steps = testSteps;
+    // Mark current as inactive (should already be set by caller)
+    if (_currentStepIndex < steps.length) {
+      steps[_currentStepIndex].isActive = false;
     }
 
-    _safeCallback(onTestUpdate);
+    _currentStepIndex++;
+    if (_currentStepIndex >= steps.length) {
+      // No more steps; stop the test
+      _isTestRunning = false;
+      _isTestComplete = true;
+      safeCallback(onTestComplete);
+      return;
+    }
+
+    // Start the next step
+    steps[_currentStepIndex].start();
   }
 
-  /// Force stop the test
-  void forceStopTest() {
-    _isTestRunning = false;
-    _safeCallback(onTestUpdate);
+  /// Safe callback invocation that checks disposal state. 
+  @protected
+  void safeCallback(VoidCallback? callback) {
+    if (!_isDisposed && callback != null) {
+      callback();
+    }
   }
 
-  /// Dispose resources
+  /// Safe step complete callback invocation.
+  @protected
+  void safeStepCallback(Function(bool)? callback, bool isSuccess) {
+    if (!_isDisposed && callback != null) {
+      callback(isSuccess);
+    }
+  }
+
+  /// Set a transient display message and notify UI via [onTestUpdate].
+  /// The message remains in [displayMessage] until cleared.
+  void pushDisplayMessage(String message) {
+    if (_isDisposed) return;
+    displayMessage = message;
+    safeCallback(onTestUpdate);
+  }
+
+  /// Clear any transient display message and notify UI.
+  void popDisplayMessage() {
+    if (_isDisposed) return;
+    displayMessage = null;
+    safeCallback(onTestUpdate);
+  }
+
+  /// Dispose resources and cleanup
   void dispose() {
     _isDisposed = true;
+    _isProcessing = false;
 
     // Dispose all detection services
     for (final service in _detectionServices.values) {
       service.dispose();
     }
 
+    // Clear all data structures
     _detectionServices.clear();
     _lastDetections.clear();
   }
-
-  /// Safe callback invocation that checks disposal state
-  void _safeCallback(VoidCallback? callback) {
-    if (!_isDisposed && callback != null) {
-      callback();
-    }
-  }
-
-  /// Push a temporary message to be displayed by the UI.
-  /// The message is stored in [displayMessage] and [onTestUpdate] is invoked
-  /// so listeners (like the camera page) can react and show it.
-  void pushDisplayMessage(String message) {
-    displayMessage = message;
-    _safeCallback(onTestUpdate);
-  }
-
-  /// Safe step complete callback invocation
-  void _safeStepCallback(Function(bool)? callback, bool isSuccess) {
-    if (!_isDisposed && callback != null) {
-      callback(isSuccess);
-    }
-  }
 }
 
-/// Test step data structure
+/// Data class representing a single test step
 class TestStep {
+  /// Name/identifier of this test step
   final String label;
-  final String targetLabel;
+  /// Target label the step is looking for in detections
+  final String? targetLabel;
+  /// Text instruction shown to the user for this step
   final String? instruction;
+  /// Path to instructional video for this step
   final String? videoPath;
+  /// Path to subtitle file for the instructional video
   final String? subtitlePath;
-  final double targetTime;
+  /// Maximum time allowed for this step in seconds
+  /// -1 means the step is not timed
   final double maxTime;
+  /// Time when this step was started (set when step becomes active)
+  DateTime? startTime;
+  /// Confidence threshold required to consider a detection successful
+  /// Defaults to 0 (any detection counts)
   final double confidenceThreshold;
-  bool isActive;
-  bool isDone;
-  bool isSuccess;
 
-  // Detection progress
-  int detectedFrameCount = 0;
-  int targetFrameCount = 0;
+  /// Whether this step is currently active/running
+  bool isActive = false;
+  /// Whether this step has been completed successfully
+  bool isSuccess = false;
+  
+  /// Number of successful detections recorded for this step
+  int detectionsCount = 0;
+  /// Number of detections required to complete this step
+  late int detectionsRequired;
 
   TestStep({
     required this.label,
@@ -440,48 +368,70 @@ class TestStep {
     this.instruction,
     this.videoPath,
     this.subtitlePath,
-    required this.targetTime,
-    required this.maxTime,
-    required this.confidenceThreshold,
-    this.isActive = false,
-    this.isDone = false,
-    this.isSuccess = false,
+    this.maxTime = -1,
+    this.confidenceThreshold = 0.0,
+    this.detectionsRequired = 0,
+    double targetTimeSeconds = 0,
+    required double frameProcessingIntervalMs,
   }) {
-    // Calculate target frame count based on actual detection rate (2 FPS = 500ms intervals)
-    // This matches the Timer.periodic interval in _runStepWithDetection
-    targetFrameCount = (targetTime * 3).round();
+    // Compute default detectionsRequired if not set by caller.
+    if (detectionsRequired == 0) {
+      detectionsRequired = targetTimeSeconds > 0
+          ? (targetTimeSeconds * 1000 / frameProcessingIntervalMs).round()
+          : 1; // If no target time specified, require at least 1 detection
+    }
   }
 
-  double get progress =>
-      targetFrameCount > 0 ? detectedFrameCount / targetFrameCount : 0.0;
-  bool get isTargetReached => detectedFrameCount >= targetFrameCount;
-}
+  /// Get the current progress as a percentage (0.0 to 1.0)
+  double get progress => detectionsRequired > 0 
+      ? (detectionsCount / detectionsRequired).clamp(0.0, 1.0)
+      : (detectionsCount > 0 ? 1.0 : 0.0);
 
-/// Constants for step labels
-class StepConstants {
-  // AVMED Medication Adherence Labels
-  static const String pill = 'pill';
-  static const String pillOnTongue = 'pill on tongue';
-  static const String noPillOnTongue = 'no pill on tongue';
-  static const String drinkWater = 'drink water';
-  static const String pleaseUseTransparentCup = 'please use transparent cup';
-  static const String mouthCovered = 'mouth covered';
-  static const String noPillUnderTongue = 'no pill under tongue';
+  bool get isTargetReached => detectionsCount >= detectionsRequired;
 
-  // AVMED Component Labels
-  static const String mouth = 'mouth';
-  static const String hand = 'hand';
-  static const String face = 'face';
-  static const String tongue = 'tongue';
-  static const String water = 'water';
+  /// Check if this step has timed out (if it's timed)
+  bool get isTimedOut {
+    if (maxTime <= 0 || startTime == null) return false;
+    return DateTime.now().difference(startTime!).inMilliseconds > (maxTime * 1000);
+  }
 
-  // YOLOv5 object detection labels
-  static const String person = 'person';
-  static const String bottle = 'bottle';
-  static const String cup = 'cup';
-  static const String apple = 'apple';
-  static const String banana = 'banana';
-  static const String book = 'book';
-  static const String cellPhone = 'cell phone';
-  static const String laptop = 'laptop';
+  /// Get elapsed time since step started in seconds
+  double get elapsedTime {
+    if (startTime == null) return 0.0;
+    return DateTime.now().difference(startTime!).inMilliseconds / 1000.0;
+  }
+
+  /// Return remaining time for this step as a percentage (0.0 - 100.0).
+  /// If the step is not timed (maxTime <= 0) or hasn't started, returns -1.0.
+  double timeRemainingPercent() {
+    if (maxTime <= 0 || startTime == null) return -1.0;
+    final remaining = maxTime - elapsedTime;
+    if (remaining <= 0) return 0.0;
+    return (remaining / maxTime) * 100.0;
+  }
+
+  /// Start this step (sets startTime)
+  void start() {
+    startTime = DateTime.now();
+    isActive = true;
+  }
+
+  /// Complete this step with success/failure
+  void complete({required bool success}) {
+    isActive = false;
+    isSuccess = success;
+  }
+
+  /// Reset this step to initial state
+  void reset() {
+    isActive = false;
+    isSuccess = false;
+    detectionsCount = 0;
+    startTime = null;
+  }
+
+  /// Increment detection count
+  void incrementDetections() {
+    detectionsCount++;
+  }
 }

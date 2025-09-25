@@ -15,13 +15,13 @@ import 'landing_page.dart';
 class CameraPage extends StatefulWidget {
   final String patientCode;
   final bool isTrial;
-  final String testType; // 'mock' or 'objects' or custom
+  final TestType testType;
 
   const CameraPage({
     super.key,
     required this.patientCode,
     this.isTrial = false,
-    this.testType = 'mock',
+    this.testType = TestType.objectDetector,
   });
 
   @override
@@ -48,7 +48,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   // Frame processing
   Timer? _frameTimer;
   int _defaultFrameProcessingInterval = 1000;
-  int _frameProcessingInterval = 1000; // Start with 200ms, will be adapted
+  int _frameProcessingInterval = 1000; // Will be adapted; initial value overwritten by controller when available
 
   // UI state
   bool _isInitialized = false;
@@ -92,9 +92,12 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
         _statusMessage = 'Setting up test controller...';
       });
 
-      // Create appropriate test controller based on type
-      _testController = _createTestController(widget.testType);
-      await _testController!.initialize();
+  // Create appropriate test controller based on type
+  _testController = _createTestController(widget.testType);
+  await _testController!.initialize();
+
+  // Align our frame interval with the controller's preferred value
+  _frameProcessingInterval = _testController!.frameProcessingIntervalMs.round();
 
       if (!mounted) return;
       setState(() {
@@ -118,10 +121,9 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     }
   }
 
-  BaseTestController _createTestController(String testType) {
+  BaseTestController _createTestController(TestType testType) {
     return TestControllerFactory.createController(
-      testType: testType,
-      isTrial: widget.isTrial,
+      type: testType,
       onTestUpdate: _onTestUpdate,
       onTestComplete: _onTestComplete,
       onStepComplete: _onStepComplete,
@@ -149,9 +151,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   }
 
   Future<void> _processCurrentFrame() async {
-    if (!mounted ||
-        _testController == null ||
-        !_testController!.areAllServicesInitialized) {
+    if (!mounted || _testController == null) {
       return;
     }
 
@@ -161,8 +161,8 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       _intervalCalculator.startTiming();
 
       try {
-        await _testController!.processCameraFrame(currentImage,
-            isFrontCamera: _cameraController.isFrontCamera);
+    await _testController!.processCurrentFrame(currentImage,
+      isFrontCamera: _cameraController.isFrontCamera);
 
         setState(() {});
 
@@ -191,10 +191,9 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     // If the test controller pushed a display message, show it for 1.5s
     final msg = _testController?.displayMessage;
     if (msg != null && msg.isNotEmpty) {
-      // Use local helper to show centered message
       showCenterMessage(msg, duration: const Duration(milliseconds: 1500));
       // Clear the controller's message so we don't show it again
-      _testController?.displayMessage = null;
+      _testController?.popDisplayMessage();
     }
   }
 
@@ -327,10 +326,13 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     if (_testController == null) return 'Test completed.';
 
     final testSteps = _testController!.testSteps;
-    final successfulSteps = _testController!.successfulStepsCount;
-    final completedSteps = _testController!.completedStepsCount;
+    // Compute summary stats from the TestStep objects
     final totalSteps = testSteps.length;
-    final overallProgress = _testController!.overallProgress;
+    final successfulSteps = testSteps.where((s) => s.isSuccess).length;
+    final completedSteps = testSteps.where((s) => !s.isActive && (s.isSuccess || s.detectionsCount>0)).length;
+    final overallProgress = testSteps.isEmpty
+      ? 0.0
+      : testSteps.map((s) => s.progress).reduce((a, b) => a + b) / testSteps.length;
 
     String message;
     if (successfulSteps == totalSteps) {
@@ -345,15 +347,15 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     }
 
     // Add step details if some failed
-    if (successfulSteps < totalSteps && completedSteps > 0) {
+        if (successfulSteps < totalSteps && completedSteps > 0) {
       message += '\n\nStep Details:';
       for (int i = 0; i < testSteps.length; i++) {
         final step = testSteps[i];
-        final status = step.isSuccess
-            ? '✅'
-            : step.isDone
-                ? '⚠️'
-                : '❌';
+            final status = step.isSuccess
+                ? '✅'
+                : (!step.isActive && step.detectionsCount>0)
+                    ? '⚠️'
+                    : '❌';
         final progress = (step.progress * 100).toInt();
         message += '\n$status Step ${i + 1}: ${step.label} ($progress%)';
       }
@@ -363,12 +365,13 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   }
 
   void _resetTest() {
-    _testController?.resetTest();
+    _testController?.stopTest();
+    // Reset steps
+    _testController?.testSteps.forEach((s) => s.reset());
     _updateInstructionVideo();
   }
 
   /// Temporarily shows a centered message on screen.
-  ///
   /// Example: showCenterMessage('Hold the pill', duration: Duration(seconds: 2));
   void showCenterMessage(String message, {Duration duration = const Duration(seconds: 2)}) {
     // Cancel any existing timer so messages don't overlap
@@ -402,7 +405,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   }
 
   void _forceStop() {
-    _testController?.forceStopTest();
+    _testController?.stopTest();
     _stopFrameProcessing();
   }
 
@@ -554,7 +557,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   Widget _buildDetectionOverlays() {
     if (_testController == null) return const SizedBox.shrink();
 
-    final poseDetections = _testController!.poseDetections;
+    final poseDetections = _testController!.getDetections('pose');
 
     // Show skeleton for pose detections
     if (poseDetections.isNotEmpty) {
@@ -648,9 +651,9 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     final testSteps = _testController!.testSteps;
     final currentStepIndex = _testController!.currentStepIndex;
 
-    if (!_testController!.hasTestStarted) {
+    if (!_testController!.isTestRunning && !_testController!.isTestComplete) {
       return 'Ready to start • ${testSteps.length} steps';
-    } else if (_testController!.isCompleted) {
+    } else if (_testController!.isTestComplete) {
       return 'Test completed successfully';
     } else if (currentStepIndex < testSteps.length) {
       final currentStep = testSteps[currentStepIndex];
@@ -753,7 +756,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
               style: const TextStyle(color: Colors.white70, fontSize: 12),
             ),
             Text(
-              '${currentStep.detectedFrameCount}/${currentStep.targetFrameCount} detections',
+              '${currentStep.detectionsCount}/${currentStep.detectionsRequired} detections',
               style: const TextStyle(color: Colors.white70, fontSize: 12),
             ),
           ],
@@ -768,8 +771,8 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     final currentStep = _testController!.currentStep;
 
     // Use the new multi-service API to get different detection types
-    final objectDetections = _testController!.objectDetections;
-    final analysisDetections = _testController!.analysisDetections;
+  final objectDetections = _testController!.getDetections('objects');
+  final analysisDetections = _testController!.getDetections('analysis');
 
     // Choose a single detection list to display. Prefer objects over analysis.
     final List<DetectionResult> displayDetections =
@@ -904,7 +907,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
           Row(
             children: [
               Icon(
-                _testController!.areAllServicesInitialized
+          _testController!.availableServiceKeys.isNotEmpty
                     ? Icons.visibility_off
                     : Icons.hourglass_empty,
                 color: Colors.white70,
@@ -912,9 +915,9 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
               ),
               const SizedBox(width: 4),
               Text(
-                _testController!.areAllServicesInitialized
-                    ? 'No detections'
-                    : 'Initializing...',
+        _testController!.availableServiceKeys.isNotEmpty
+          ? 'No detections'
+          : 'Initializing...',
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 14,
@@ -944,7 +947,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
         // Start/Stop button
         Expanded(
           child: ElevatedButton(
-            onPressed: _testController?.hasTestStarted == true
+            onPressed: _testController?.isTestRunning == true
                 ? _forceStop
                 : _startTest,
             style: ElevatedButton.styleFrom(

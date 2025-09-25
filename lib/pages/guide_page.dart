@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import '../widgets/pretest_survey_widget.dart';
 import 'camera_page.dart';
+import '../utils/test_controller_factory.dart';
 
 class GuidePage extends StatefulWidget {
   @override
@@ -134,7 +135,7 @@ class GuidePageState extends State<GuidePage> with WidgetsBindingObserver {
         builder: (context) => CameraPage(
           patientCode: patientCode,
           isTrial: false, // Set to true for trial mode
-          testType: 'medication', // Default to medication test
+          testType: TestType.objectDetector, // default test
         ),
       ),
     );

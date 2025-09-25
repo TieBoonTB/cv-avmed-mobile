@@ -52,7 +52,7 @@ class TestLauncherPage extends StatelessWidget {
     );
   }
 
-  Widget _buildTestTypeCard(BuildContext context, String testType) {
+  Widget _buildTestTypeCard(BuildContext context, TestType testType) {
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       child: Padding(
@@ -121,18 +121,15 @@ class TestLauncherPage extends StatelessWidget {
     );
   }
 
-  IconData _getTestIcon(String testType) {
+  IconData _getTestIcon(TestType testType) {
     switch (testType) {
-      case 'mock':
-        return Icons.science;
-      case 'objectDetection':
+      case TestType.objectDetector:
         return Icons.visibility;
-      default:
-        return Icons.help;
+      case TestType.sppbChairStand:
+        return Icons.accessibility_new;
     }
   }
-
-  void _launchTest(BuildContext context, String testType, bool isTrial) {
+  void _launchTest(BuildContext context, TestType testType, bool isTrial) {
     Navigator.push(
       context,
       MaterialPageRoute(
