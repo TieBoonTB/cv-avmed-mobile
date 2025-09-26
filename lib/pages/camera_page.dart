@@ -47,6 +47,8 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
 
   // Frame processing
   Timer? _frameTimer;
+  // Timer to update time-remaining UI independently of detection updates
+  Timer? _timeRemainingTimer;
   int _defaultFrameProcessingInterval = 1000;
   int _frameProcessingInterval = 1000; // Will be adapted; initial value overwritten by controller when available
 
@@ -92,33 +94,33 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
         _statusMessage = 'Setting up test controller...';
       });
 
-  // Create appropriate test controller based on type
-  _testController = _createTestController(widget.testType);
-  await _testController!.initialize();
+      // Create appropriate test controller based on type
+      _testController = _createTestController(widget.testType);
+      await _testController!.initialize();
 
-  // Align our frame interval with the controller's preferred value
-  _frameProcessingInterval = _testController!.frameProcessingIntervalMs.round();
-
-      if (!mounted) return;
-      setState(() {
-        _statusMessage = 'Starting frame processing...';
-      });
-
-      // Initialize instruction video
-      _updateInstructionVideo();
+      // Align our frame interval with the controller's preferred value
+      _frameProcessingInterval = _testController!.frameProcessingIntervalMs.round();
 
       if (!mounted) return;
-      setState(() {
-        _isInitialized = true;
-        _statusMessage = 'Ready';
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _statusMessage = 'Initialization failed: $e';
-      });
-      print('Error initializing components: $e');
-    }
+        setState(() {
+          _statusMessage = 'Starting frame processing...';
+        });
+
+        // Initialize instruction video
+        _updateInstructionVideo();
+
+        if (!mounted) return;
+        setState(() {
+          _isInitialized = true;
+          _statusMessage = 'Ready';
+        });
+      } catch (e) {
+          if (!mounted) return;
+          setState(() {
+            _statusMessage = 'Initialization failed: $e';
+          });
+          print('Error initializing components: $e');
+      }
   }
 
   BaseTestController _createTestController(TestType testType) {
@@ -200,6 +202,9 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   void _onTestComplete() {
     if (!mounted) return; // Add mounted check
     _stopFrameProcessing();
+    // Stop the time remaining refresher when test completes
+    _timeRemainingTimer?.cancel();
+    _timeRemainingTimer = null;
     _showCompletionDialog();
   }
 
@@ -402,17 +407,37 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
         _defaultFrameProcessingInterval; // Reset to starting interval
 
     _startFrameProcessing();
+    // Start a timer to refresh time-remaining UI frequently (smooth countdown)
+    _timeRemainingTimer?.cancel();
+    _timeRemainingTimer = Timer.periodic(
+      const Duration(milliseconds: 200),
+      (timer) {
+        if (!mounted) return;
+        final step = _testController?.currentStep;
+        if (step != null && step.timeRemainingPercent() >= 0 && step.isActive) {
+          // Only update UI when there's an active timed step to avoid unnecessary rebuilds
+          setState(() {});
+        }
+      },
+    );
   }
 
   void _forceStop() {
     _testController?.stopTest();
     _stopFrameProcessing();
+    // Stop the time remaining refresher
+    _timeRemainingTimer?.cancel();
+    _timeRemainingTimer = null;
   }
 
   @override
   void dispose() {
     // Stop frame processing first to prevent any ongoing operations
     _stopFrameProcessing();
+
+    // Cancel time remaining timer
+    _timeRemainingTimer?.cancel();
+    _timeRemainingTimer = null;
 
     // Dispose animation controllers
     _flashController.dispose();
@@ -747,6 +772,42 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
                     : Colors.orange),
           ),
         ),
+        const SizedBox(height: 6),
+        // Time-remaining bar when the step is timed
+        Builder(builder: (context) {
+          final timePercent = currentStep.timeRemainingPercent();
+          if (timePercent < 0) return const SizedBox.shrink();
+
+          // Convert percent (0.0-100.0) to 0.0-1.0 for LinearProgressIndicator
+          final progress = (timePercent / 100.0).clamp(0.0, 1.0);
+          final secondsLeft = (currentStep.maxTime - currentStep.elapsedTime).clamp(0.0, double.infinity);
+
+          return Column(
+            children: [
+              LinearProgressIndicator(
+                value: progress,
+                backgroundColor: Colors.white12,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                    progress > 0.5 ? Colors.green : (progress > 0.2 ? Colors.orange : Colors.red)),
+                minHeight: 6,
+              ),
+              const SizedBox(height: 6),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    '${secondsLeft.toStringAsFixed(1)}s left',
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
+                  Text(
+                    '${timePercent.toStringAsFixed(0)}% time',
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
+                ],
+              ),
+            ],
+          );
+        }),
         const SizedBox(height: 4),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -771,16 +832,13 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     final currentStep = _testController!.currentStep;
 
     // Use the new multi-service API to get different detection types
-  final objectDetections = _testController!.getDetections('objects');
-  final analysisDetections = _testController!.getDetections('analysis');
+    final objectDetections = _testController!.getDetections('objects');
+    final analysisDetections = _testController!.getDetections('analysis');
 
     // Choose a single detection list to display. Prefer objects over analysis.
-    final List<DetectionResult> displayDetections =
-        objectDetections.isNotEmpty ? objectDetections : analysisDetections;
-    final bool isAnalysis =
-        objectDetections.isEmpty && analysisDetections.isNotEmpty;
-    final IconData detectionIcon =
-        isAnalysis ? Icons.analytics : Icons.category;
+    final List<DetectionResult> displayDetections = objectDetections.isNotEmpty ? objectDetections : analysisDetections;
+    final bool isAnalysis = objectDetections.isEmpty && analysisDetections.isNotEmpty;
+    final IconData detectionIcon = isAnalysis ? Icons.analytics : Icons.category;
     final Color detectionColor = isAnalysis ? Colors.purple : Colors.orange;
 
     // Show detection info if any detections are available
