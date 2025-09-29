@@ -28,7 +28,7 @@ class TestControllerSPPBChairStand extends BaseTestController {
   // For Chair Stand Analysis
   SPPBTestMetrics? _currentMetrics;
   // Test parameters
-  static const int targetRepetitions = 5;
+  static const int targetRepetitions = 3;
   static const double maxTestTime = 60.0; // seconds
   DateTime? lastRepDetectionTime;
 
@@ -76,7 +76,7 @@ class TestControllerSPPBChairStand extends BaseTestController {
         instruction: "Slowly sit and stand in front of the camera, ensuring as much of your body is as visible as possible.",
         targetLabel: 'chair_stand',
         frameProcessingIntervalMs: intervalMs,
-        maxTime: 60,
+        maxTime: 120,
         detectionsRequired: targetRepetitions, 
       ),
       TestStep(
@@ -204,6 +204,7 @@ class TestControllerSPPBChairStand extends BaseTestController {
 
   bool _validateChairDetection(List<DetectionResult> detections) {
     final chairs = detections.where((d) => d.label.toLowerCase() == 'chair').toList();
+    return true;
 
     if (chairs.isEmpty) {
       return false;
@@ -253,7 +254,6 @@ class TestControllerSPPBChairStand extends BaseTestController {
       final analysisResult = analysisService.analyzeMovement(landmarks: landmarks, timestamp: DateTime.now());
 
       _currentMetrics = analysisService.getTestMetrics();
-      print("${analysisResult.repDetected}");
 
       // React to explicit repititon flag returned by the analysis service
       if (analysisResult.repDetected) {

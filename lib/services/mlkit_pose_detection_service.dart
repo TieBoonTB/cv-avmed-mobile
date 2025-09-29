@@ -55,19 +55,9 @@ class MLKitPoseDetectionService extends BaseDetectionService {
     final landmarks = <String, DetectionBox>{};
 
     // MediaPipe pose model provides 33 landmarks, we focus on key ones for chair stand test
+    // Keep every detection so callers can access all available landmarks
     for (final detection in detections) {
-      if ([
-        'left_hip',
-        'right_hip',
-        'left_knee',
-        'right_knee',
-        'left_shoulder',
-        'right_shoulder',
-        'left_ankle',
-        'right_ankle'
-      ].contains(detection.label)) {
-        landmarks[detection.label] = detection.box;
-      }
+      landmarks[detection.label] = detection.box;
     }
 
     return landmarks;

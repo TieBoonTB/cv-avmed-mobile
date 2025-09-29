@@ -18,12 +18,14 @@ class DetectionBox {
   final double y;
   final double width;
   final double height;
+  final double confidence;
 
   const DetectionBox({
     required this.x,
     required this.y,
     required this.width,
     required this.height,
+    this.confidence = 1.0,
   });
 
   /// Convert to map for serialization
@@ -33,6 +35,7 @@ class DetectionBox {
       'y': y,
       'width': width,
       'height': height,
+      'confidence': confidence,
     };
   }
 
@@ -43,11 +46,12 @@ class DetectionBox {
       y: map['y']?.toDouble() ?? 0.0,
       width: map['width']?.toDouble() ?? 0.0,
       height: map['height']?.toDouble() ?? 0.0,
+      confidence: map['confidence']?.toDouble() ?? 1.0,
     );
   }
 
   @override
-  String toString() => 'DetectionBox(x: $x, y: $y, w: $width, h: $height)';
+  String toString() => 'DetectionBox(x: $x, y: $y, w: $width, h: $height, c: $confidence)';
 }
 
 /// Result of object detection
@@ -69,7 +73,7 @@ class DetectionResult {
     return DetectionResult(
       label: '$modelName Error: $errorMessage',
       confidence: 0.0,
-      box: const DetectionBox(x: 0.5, y: 0.5, width: 0.1, height: 0.1),
+      box: const DetectionBox(x: 0.5, y: 0.5, width: 0.1, height: 0.1, confidence: 0.0),
       status: DetectionStatus.failure,
     );
   }
@@ -80,7 +84,7 @@ class DetectionResult {
     return DetectionResult(
       label: '$modelName Warning: $warningMessage',
       confidence: 0.0,
-      box: const DetectionBox(x: 0.5, y: 0.5, width: 0.1, height: 0.1),
+      box: const DetectionBox(x: 0.5, y: 0.5, width: 0.1, height: 0.1, confidence: 0.0),
       status: DetectionStatus.warning,
     );
   }

@@ -73,14 +73,18 @@ class MLKitPoseModel extends BaseModel {
               _extractLandmarks(pose, image.width, image.height);
           for (final entry in landmarkMap.entries) {
             final lm = entry.value;
+            // Preserve raw normalized coordinates (may be outside 0..1) and
+            // include per-landmark confidence so downstream logic can decide
+            // whether to use an off-screen point.
             results.add(DetectionResult(
               label: entry.key,
               confidence: lm.confidence, // use computed per-landmark confidence
               box: DetectionBox(
-                x: lm.x.clamp(0.0, 1.0),
-                y: lm.y.clamp(0.0, 1.0),
+                x: lm.x,
+                y: lm.y,
                 width: 0.01,
                 height: 0.01,
+                confidence: lm.confidence,
               ),
             ));
           }

@@ -8,6 +8,8 @@ class SPPBAnalysisService extends BaseDetectionService {
   // Movement tracking state
   List<double> _hipAngleHistory = [];
   List<String> _movementPhaseHistory = [];
+  // Arm crossing state
+  bool get armsCrossed => _armsCrossed;
   int _completedRepetitions = 0;
   DateTime? _testStartTime;
   DateTime? _currentRepStartTime;
@@ -19,6 +21,7 @@ class SPPBAnalysisService extends BaseDetectionService {
 
   @override
   String get serviceType => 'SPPB Clinical Analysis Service';
+  bool _armsCrossed = false;
 
   @override
   BaseModel? get currentModel => null; // Analysis service doesn't use a model
@@ -83,9 +86,10 @@ class SPPBAnalysisService extends BaseDetectionService {
     _movementPhaseHistory.add(movementPhase);
 
     // DEBUG: print angle and phase for tuning
-    print(
-        'SPPB DEBUG: hipAngle=${hipAngle.toStringAsFixed(1)}, previous=${previousAngle.toStringAsFixed(1)}, phase=$movementPhase');
+    print('SPPB DEBUG: hipAngle=${hipAngle.toStringAsFixed(1)}, previous=${previousAngle.toStringAsFixed(1)}, phase=$movementPhase');
 
+  // Update arms crossed state for external users
+  _armsCrossed = _detectArmsCrossed(landmarks: landmarks);
   // Detect completed repetitions (returns whether a new repetition was counted)
   final bool repDetected = _detectRepetitions(movementPhase, timestamp);
 
@@ -146,15 +150,83 @@ class SPPBAnalysisService extends BaseDetectionService {
     return angle;
   }
 
+  bool _detectArmsCrossed({
+    required Map<String, DetectionBox> landmarks,
+  }) {
+    final leftShoulder = landmarks['left_shoulder'];
+    final rightShoulder = landmarks['right_shoulder'];
+    final leftElbow = landmarks['left_elbow'];
+    final rightElbow = landmarks['right_elbow'];
+    final leftWrist = landmarks['left_wrist'];
+    final rightWrist = landmarks['right_wrist'];
+
+    // Minimum confidence and in-frame check
+    bool isValidLandmark(DetectionBox? b) {
+      if (b == null) return false;
+      // Consider landmark valid only if confidence > 0 and coordinates are inside [0,1]
+      return b.confidence > 0.0 && b.x >= 0.0 && b.x <= 1.0 && b.y >= 0.0 && b.y <= 1.0;
+    }
+
+    // Need the core landmarks to make a reliable decision
+    if (!isValidLandmark(leftShoulder) ||
+        !isValidLandmark(rightShoulder) ||
+        !isValidLandmark(leftElbow) ||
+        !isValidLandmark(rightElbow) ||
+        !isValidLandmark(leftWrist) ||
+        !isValidLandmark(rightWrist)) {
+      // If any core landmark is missing or off-screen, don't claim arms crossed
+      return false;
+    }
+
+    // Horizontal positions (x). Assume image coordinate system where x increases to the right.
+    final lsx = leftShoulder!.x;
+    final rsx = rightShoulder!.x;
+    final lex = leftElbow!.x;
+    final rex = rightElbow!.x;
+    final lwx = leftWrist!.x;
+    final rwx = rightWrist!.x;
+
+    // Tolerance: fraction of shoulder distance to allow for jitter
+    final shoulderDist = (rsx - lsx).abs();
+    final tol = (shoulderDist * 0.15).clamp(0.02, 0.1);
+
+    // Common crossed-arms patterns:
+    // - Left arm crosses over to the right: left wrist (or elbow) is to the right of the right shoulder
+    final leftCrossesRight = (lwx > rsx + tol) || (lex > rsx + tol);
+
+    // - Right arm crosses over to the left: right wrist (or elbow) is to the left of the left shoulder
+    final rightCrossesLeft = (rwx < lsx - tol) || (rex < lsx - tol);
+
+    // Another robust check: wrists are swapped horizontally (left wrist right of right wrist)
+    final wristsSwapped = lwx > rwx + tol && lex > rex + tol;
+
+    // If both arms clearly cross midline in opposite directions, that's a strong indicator.
+    if ((leftCrossesRight && rightCrossesLeft) || wristsSwapped) {
+      return true;
+    }
+
+    // Less strict: one arm crosses over the midline and the other is near center
+    final midline = (lsx + rsx) / 2.0;
+    final leftWristPastMid = lwx > midline + tol;
+    final rightWristPastMid = rwx < midline - tol;
+    if (leftWristPastMid && (rwx < rsx + shoulderDist * 0.2)) return true;
+    if (rightWristPastMid && (lwx > lsx - shoulderDist * 0.2)) return true;
+
+    return false;
+  }
+
+
   /// Analyze movement phase based on hip angle changes
   String _analyzeMovementPhase({
     required double hipAngle,
     required double previousHipAngle,
   }) {
-    // TUNABLE THRESHOLDS (lowered for easier dev detection)
-    const double sitToStandThreshold = 125.0; // lowered from 135
-    const double standToSitThreshold = 110.0; // slightly raised from 105
-    const double angleChangeThreshold = 3.0; // lowered from 5.0
+  // Lower sitToStand so a smaller hip angle counts as standing.
+  const double sitToStandThreshold = 125.0;
+  // Raise standToSit slightly so the algorithm detects sitting earlier.
+  const double standToSitThreshold = 120.0;
+  // Reduce required angle change to make transitions more sensitive.
+  const double angleChangeThreshold = 2.0;
 
     final angleChange = hipAngle - previousHipAngle;
 
@@ -187,12 +259,8 @@ class SPPBAnalysisService extends BaseDetectionService {
     if (_movementPhaseHistory.length < 6) return false; // Need some history
 
     // Look for sit->stand->sit pattern
-    final recentPhases =
-        _movementPhaseHistory.skip(_movementPhaseHistory.length - 10).toList();
-
-    // DEBUG: print recent phases before pattern check
-    print(
-        'SPPB DEBUG: recentPhases=${recentPhases.join(', ')} currentPhase=$currentPhase historyLen=${_movementPhaseHistory.length}');
+    final skipCount = (_movementPhaseHistory.length - 10).clamp(0, _movementPhaseHistory.length);
+    final recentPhases = _movementPhaseHistory.skip(skipCount).toList();
 
     if (recentPhases.contains('sitting') &&
         recentPhases.contains('sit_to_stand') &&
@@ -204,16 +272,14 @@ class SPPBAnalysisService extends BaseDetectionService {
       // Record repetition time
       double? repTime;
       if (_currentRepStartTime != null) {
-        repTime =
-            timestamp.difference(_currentRepStartTime!).inMilliseconds / 1000.0;
+        repTime = timestamp.difference(_currentRepStartTime!).inMilliseconds / 1000.0;
         _repetitionTimes.add(repTime);
       }
 
       _currentRepStartTime = timestamp;
 
       // DEBUG: log repetition event
-      print(
-          'SPPB DEBUG: counted repetition #${_completedRepetitions} at $timestamp repTime=${repTime ?? 'n/a'}');
+      print('SPPB DEBUG: counted repetition #${_completedRepetitions} at $timestamp repTime=${repTime ?? 'n/a'}');
 
       // Clear recent history to avoid double counting
       _movementPhaseHistory.clear();
@@ -224,6 +290,7 @@ class SPPBAnalysisService extends BaseDetectionService {
 
     return false;
   }
+
 
   void _updateClinicalMetrics(DateTime timestamp) {
     _testStartTime ??= timestamp;
@@ -262,6 +329,7 @@ class SPPBAnalysisService extends BaseDetectionService {
     _hipAngleHistory.clear();
     _movementPhaseHistory.clear();
     _completedRepetitions = 0;
+    _armsCrossed = false;
     _testStartTime = null;
     _currentRepStartTime = null;
     _repetitionTimes.clear();
@@ -341,3 +409,4 @@ class SPPBTestMetrics {
     return 0; // Unable to complete
   }
 }
+
