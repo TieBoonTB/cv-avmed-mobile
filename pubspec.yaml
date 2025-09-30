@@ -20,6 +20,9 @@ dependencies:
   # system information
   device_info_plus: ^11.5.0
   google_mlkit_pose_detection: ^0.14.0
+  # WebSocket dependencies
+  web_socket_channel: ^2.4.0
+  uuid: ^4.1.0
 
 dev_dependencies:
   flutter_test:

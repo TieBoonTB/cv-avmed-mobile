@@ -127,6 +127,10 @@ class TestLauncherPage extends StatelessWidget {
         return Icons.visibility;
       case TestType.sppbChairStand:
         return Icons.accessibility_new;
+      case TestType.avmedLocal:
+        return Icons.medication;
+      case TestType.avmedWebSocket:
+        return Icons.wifi;
     }
   }
   void _launchTest(BuildContext context, TestType testType, bool isTrial) {
