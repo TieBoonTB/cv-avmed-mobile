@@ -4,73 +4,188 @@ import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 import 'dart:async';
 import 'dart:ui' as ui;
+import 'dart:typed_data';
 
 class CameraImageUtils {
   /// Convert CameraImage to Image object for ML processing
   /// This creates a proper Image object that can be processed by ML models
   static img.Image? convertCameraImageToImage(CameraImage cameraImage) {
     try {
+      debugPrint('Camera image format: ${cameraImage.format.group}');
+      debugPrint('Camera image size: ${cameraImage.width}x${cameraImage.height}');
+      debugPrint('Camera image planes: ${cameraImage.planes.length}');
+      
       // For YUV420 format (most common on mobile cameras)
       if (cameraImage.format.group == ImageFormatGroup.yuv420) {
         return convertYUV420ToImage(cameraImage);
       }
+      // For NV21 format (Android specific)
+      else if (cameraImage.format.group == ImageFormatGroup.nv21) {
+        return convertNV21ToImage(cameraImage);
+      }
+      // For BGRA8888 format (iOS specific)
+      else if (cameraImage.format.group == ImageFormatGroup.bgra8888) {
+        return convertBGRA8888ToImage(cameraImage);
+      }
       // For other formats, try to decode directly
       else {
+        debugPrint('Unknown format, trying direct decode...');
         final bytes = cameraImage.planes[0].bytes;
         return img.decodeImage(bytes);
       }
     } catch (e) {
       debugPrint('Error converting camera image to Image: $e');
+      debugPrint('Stack trace: ${StackTrace.current}');
       return null;
     }
   }
 
   /// Convert YUV420 CameraImage to RGB Image object
   static img.Image convertYUV420ToImage(CameraImage cameraImage) {
-    final int width = cameraImage.width;
-    final int height = cameraImage.height;
+    try {
+      final int width = cameraImage.width;
+      final int height = cameraImage.height;
 
-    final yPlane = cameraImage.planes[0];
-    final uPlane = cameraImage.planes[1];
-    final vPlane = cameraImage.planes[2];
+      if (cameraImage.planes.length < 3) {
+        debugPrint('YUV420 conversion failed: insufficient planes (${cameraImage.planes.length})');
+        throw Exception('YUV420 requires 3 planes');
+      }
 
-    // Create a new RGB image
-    final image = img.Image(width: width, height: height);
+      final yPlane = cameraImage.planes[0];
+      final uPlane = cameraImage.planes[1];
+      final vPlane = cameraImage.planes[2];
 
-    for (int h = 0; h < height; h++) {
-      for (int w = 0; w < width; w++) {
-        final int yIndex = h * yPlane.bytesPerRow + w;
-        final int uvIndex = (h ~/ 2) * uPlane.bytesPerRow + (w ~/ 2) * uPlane.bytesPerPixel!;
+      debugPrint('YPlane bytes: ${yPlane.bytes.length}, UPlane bytes: ${uPlane.bytes.length}, VPlane bytes: ${vPlane.bytes.length}');
 
-        if (yIndex < yPlane.bytes.length && 
-            uvIndex < uPlane.bytes.length && 
-            uvIndex < vPlane.bytes.length) {
+      // Create a new RGB image
+      final image = img.Image(width: width, height: height);
 
-          final int y = yPlane.bytes[yIndex];
-          final int u = uPlane.bytes[uvIndex];
-          final int v = vPlane.bytes[uvIndex];
+      for (int h = 0; h < height; h++) {
+        for (int w = 0; w < width; w++) {
+          final int yIndex = h * yPlane.bytesPerRow + w;
+          final int uvIndex = (h ~/ 2) * uPlane.bytesPerRow + (w ~/ 2) * (uPlane.bytesPerPixel ?? 1);
 
-          // YUV to RGB conversion
-          final int r = (y + 1.370705 * (v - 128)).clamp(0, 255).toInt();
-          final int g = (y - 0.698001 * (v - 128) - 0.337633 * (u - 128)).clamp(0, 255).toInt();
-          final int b = (y + 1.732446 * (u - 128)).clamp(0, 255).toInt();
+          if (yIndex < yPlane.bytes.length && 
+              uvIndex < uPlane.bytes.length && 
+              uvIndex < vPlane.bytes.length) {
 
-          // Set pixel in image
-          image.setPixelRgb(w, h, r, g, b);
+            final int y = yPlane.bytes[yIndex];
+            final int u = uPlane.bytes[uvIndex];
+            final int v = vPlane.bytes[uvIndex];
+
+            // YUV to RGB conversion
+            final int r = (y + 1.370705 * (v - 128)).clamp(0, 255).toInt();
+            final int g = (y - 0.698001 * (v - 128) - 0.337633 * (u - 128)).clamp(0, 255).toInt();
+            final int b = (y + 1.732446 * (u - 128)).clamp(0, 255).toInt();
+
+            // Set pixel in image
+            image.setPixelRgb(w, h, r, g, b);
+          }
         }
       }
-    }
 
-    return image;
+      return image;
+    } catch (e) {
+      debugPrint('YUV420 conversion error: $e');
+      throw e;
+    }
+  }
+
+  /// Convert BGRA8888 CameraImage to RGB Image object (iOS format)
+  static img.Image convertBGRA8888ToImage(CameraImage cameraImage) {
+    try {
+      final int width = cameraImage.width;
+      final int height = cameraImage.height;
+      final bytes = cameraImage.planes[0].bytes;
+      
+      debugPrint('BGRA8888 conversion: ${width}x${height}, bytes: ${bytes.length}');
+      
+      // Create a new RGB image
+      final image = img.Image(width: width, height: height);
+      
+      // BGRA8888 has 4 bytes per pixel
+      for (int h = 0; h < height; h++) {
+        for (int w = 0; w < width; w++) {
+          final int pixelIndex = (h * width + w) * 4;
+          
+          if (pixelIndex + 3 < bytes.length) {
+            final int b = bytes[pixelIndex];
+            final int g = bytes[pixelIndex + 1];
+            final int r = bytes[pixelIndex + 2];
+            final int a = bytes[pixelIndex + 3];
+            
+            // Set pixel in image (convert BGRA to RGB)
+            image.setPixelRgb(w, h, r, g, b);
+          }
+        }
+      }
+      
+      return image;
+    } catch (e) {
+      debugPrint('BGRA8888 conversion error: $e');
+      throw e;
+    }
+  }
+
+  /// Convert NV21 CameraImage to RGB Image object (Android format)
+  static img.Image convertNV21ToImage(CameraImage cameraImage) {
+    try {
+      final int width = cameraImage.width;
+      final int height = cameraImage.height;
+      
+      final yPlane = cameraImage.planes[0];
+      final uvPlane = cameraImage.planes[1];
+      
+      debugPrint('NV21 conversion: ${width}x${height}');
+      
+      // Create a new RGB image
+      final image = img.Image(width: width, height: height);
+      
+      for (int h = 0; h < height; h++) {
+        for (int w = 0; w < width; w++) {
+          final int yIndex = h * yPlane.bytesPerRow + w;
+          final int uvIndex = (h ~/ 2) * uvPlane.bytesPerRow + (w ~/ 2) * 2;
+          
+          if (yIndex < yPlane.bytes.length && 
+              uvIndex + 1 < uvPlane.bytes.length) {
+            
+            final int y = yPlane.bytes[yIndex];
+            final int v = uvPlane.bytes[uvIndex]; // NV21 has V first
+            final int u = uvPlane.bytes[uvIndex + 1];
+            
+            // YUV to RGB conversion
+            final int r = (y + 1.370705 * (v - 128)).clamp(0, 255).toInt();
+            final int g = (y - 0.698001 * (v - 128) - 0.337633 * (u - 128)).clamp(0, 255).toInt();
+            final int b = (y + 1.732446 * (u - 128)).clamp(0, 255).toInt();
+            
+            // Set pixel in image
+            image.setPixelRgb(w, h, r, g, b);
+          }
+        }
+      }
+      
+      return image;
+    } catch (e) {
+      debugPrint('NV21 conversion error: $e');
+      throw e;
+    }
   }
 
   /// Convert CameraImage directly to encoded bytes (JPEG) for ML processing
   /// This creates properly encoded image bytes that can be decoded by img.decodeImage()
   static Uint8List convertCameraImageToBytes(CameraImage cameraImage, {bool isFrontCamera = false}) {
     try {
-      final image = convertCameraImageToImage(cameraImage);
+      // Try primary conversion method
+      var image = convertCameraImageToImage(cameraImage);
+      
+      // Fallback methods if primary fails
       if (image == null) {
-        debugPrint('Failed to convert CameraImage to Image');
+        debugPrint('Primary conversion failed, trying fallback methods...');
+        image = _tryFallbackConversion(cameraImage);
+      }
+      
+      if (image == null) {
+        debugPrint('All conversion methods failed');
         return Uint8List(0);
       }
       
@@ -92,7 +207,69 @@ class CameraImageUtils {
       return Uint8List.fromList(jpegBytes);
     } catch (e) {
       debugPrint('Error converting camera image to bytes: $e');
+      debugPrint('Stack trace: ${StackTrace.current}');
       return Uint8List(0);
+    }
+  }
+
+  /// Fallback conversion methods for problematic camera formats
+  static img.Image? _tryFallbackConversion(CameraImage cameraImage) {
+    try {
+      // Method 1: Try treating first plane as RGB
+      if (cameraImage.planes.isNotEmpty) {
+        debugPrint('Trying fallback method 1: Direct plane decode');
+        final bytes = cameraImage.planes[0].bytes;
+        var decoded = img.decodeImage(bytes);
+        if (decoded != null) {
+          debugPrint('Fallback method 1 succeeded');
+          return decoded;
+        }
+      }
+
+      // Method 2: Try creating RGB image manually from Y plane (grayscale)
+      if (cameraImage.planes.isNotEmpty) {
+        debugPrint('Trying fallback method 2: Grayscale from Y plane');
+        final yPlane = cameraImage.planes[0];
+        final width = cameraImage.width;
+        final height = cameraImage.height;
+        
+        final image = img.Image(width: width, height: height);
+        
+        for (int h = 0; h < height; h++) {
+          for (int w = 0; w < width; w++) {
+            final int yIndex = h * yPlane.bytesPerRow + w;
+            if (yIndex < yPlane.bytes.length) {
+              final int y = yPlane.bytes[yIndex];
+              // Create grayscale RGB
+              image.setPixelRgb(w, h, y, y, y);
+            }
+          }
+        }
+        
+        debugPrint('Fallback method 2 succeeded');
+        return image;
+      }
+
+      // Method 3: Try raw concatenation of all planes
+      if (cameraImage.planes.length > 1) {
+        debugPrint('Trying fallback method 3: Concatenated planes');
+        final allBytes = <int>[];
+        for (final plane in cameraImage.planes) {
+          allBytes.addAll(plane.bytes);
+        }
+        
+        var decoded = img.decodeImage(Uint8List.fromList(allBytes));
+        if (decoded != null) {
+          debugPrint('Fallback method 3 succeeded');
+          return decoded;
+        }
+      }
+      
+      debugPrint('All fallback methods failed');
+      return null;
+    } catch (e) {
+      debugPrint('Fallback conversion error: $e');
+      return null;
     }
   }
 

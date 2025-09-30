@@ -301,6 +301,14 @@ class _CameraTestPageState extends State<CameraTestPage> {
     }
 
     try {
+      // Debug camera image format
+      print('Camera image format: ${currentImage.format.group}');
+      print('Camera image size: ${currentImage.width}x${currentImage.height}');
+      print('Camera image planes: ${currentImage.planes.length}');
+      for (int i = 0; i < currentImage.planes.length; i++) {
+        print('Plane $i: ${currentImage.planes[i].bytes.length} bytes, bytesPerRow: ${currentImage.planes[i].bytesPerRow}');
+      }
+      
       // Convert camera image to bytes for ML processing (measure timing)
       final imageBytes = CameraImageUtils.convertCameraImageToBytes(
           currentImage,
@@ -311,6 +319,8 @@ class _CameraTestPageState extends State<CameraTestPage> {
         _isProcessing = false;
         return;
       }
+      
+      print('Successfully converted camera image to ${imageBytes.length} bytes');
 
       // Run object detection
       final results = await _currentDetectionService?.processFrame(
