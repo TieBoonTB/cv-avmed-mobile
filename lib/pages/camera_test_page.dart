@@ -10,7 +10,7 @@ import '../types/detection_types.dart';
 import '../widgets/pose_mlkit_painter.dart';
 import '../widgets/detection_box_painter.dart';
 
-enum DetectionModel { yolov5, avmed, chairDetection, poseDetection }
+enum DetectionModel { yolov5, avmed, poseDetection }
 
 class CameraTestPage extends StatefulWidget {
   const CameraTestPage({super.key});
@@ -27,7 +27,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
   // Detection services (isolate-based and SPPB services)
   IsolateYOLOv5DetectionService? _isolateYolov5Service;
   IsolateAVMedDetectionService? _isolateAvmedService;
-  IsolateChairDetectionService? _isolateChairDetectionService;
   MLKitPoseDetectionService? _isolatePoseDetectionService;
   BaseDetectionService? _currentDetectionService;
   DetectionModel _currentModel =
@@ -58,12 +57,10 @@ class _CameraTestPageState extends State<CameraTestPage> {
       _isolateAvmedService = IsolateAVMedDetectionService();
 
       // Initialize isolate SPPB services
-      _isolateChairDetectionService = IsolateChairDetectionService();
       _isolatePoseDetectionService = MLKitPoseDetectionService();
 
       bool yolov5Success = false;
       bool avmedSuccess = false;
-      bool chairSuccess = false;
       bool poseSuccess = false;
 
       try {
@@ -83,14 +80,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
       }
 
       try {
-        await _isolateChairDetectionService?.initialize();
-        print('Isolate Chair Detection service initialized');
-        chairSuccess = true;
-      } catch (e) {
-        print('Failed to initialize isolate Chair Detection service: $e');
-      }
-
-      try {
         await _isolatePoseDetectionService?.initialize();
         print('Isolate Pose Detection service initialized');
         poseSuccess = true;
@@ -101,10 +90,9 @@ class _CameraTestPageState extends State<CameraTestPage> {
       print('Service initialization results:');
       print('  YOLOv5: ${yolov5Success ? "✅" : "❌"}');
       print('  AVMED: ${avmedSuccess ? "✅" : "❌"}');
-      print('  Chair Detection: ${chairSuccess ? "✅" : "❌"}');
       print('  Pose Detection: ${poseSuccess ? "✅" : "❌"}');
 
-      if (yolov5Success || avmedSuccess || chairSuccess || poseSuccess) {
+      if (yolov5Success || avmedSuccess || poseSuccess) {
         // Set initial service based on current model
         _updateCurrentService();
       }
@@ -124,7 +112,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
       try {
         _isolateYolov5Service?.dispose();
         _isolateAvmedService?.dispose();
-        _isolateChairDetectionService?.dispose();
         _isolatePoseDetectionService?.dispose();
       } catch (_) {}
     }
@@ -142,12 +129,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
         _currentDetectionService = _isolateAvmedService?.isInitialized == true
             ? _isolateAvmedService
             : null;
-        break;
-      case DetectionModel.chairDetection:
-        _currentDetectionService =
-            _isolateChairDetectionService?.isInitialized == true
-                ? _isolateChairDetectionService
-                : null;
         break;
       case DetectionModel.poseDetection:
         _currentDetectionService =
@@ -178,9 +159,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
           _currentModel = DetectionModel.avmed;
           break;
         case DetectionModel.avmed:
-          _currentModel = DetectionModel.chairDetection;
-          break;
-        case DetectionModel.chairDetection:
           _currentModel = DetectionModel.poseDetection;
           break;
         case DetectionModel.poseDetection:
@@ -210,8 +188,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
         return 'YOLOv5';
       case DetectionModel.avmed:
         return 'AVMED';
-      case DetectionModel.chairDetection:
-        return 'Chair Detection';
       case DetectionModel.poseDetection:
         return 'Pose Detection';
     }
@@ -224,8 +200,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
         return Colors.blue.withValues(alpha: 0.8);
       case DetectionModel.avmed:
         return Colors.purple.withValues(alpha: 0.8);
-      case DetectionModel.chairDetection:
-        return Colors.green.withValues(alpha: 0.8);
       case DetectionModel.poseDetection:
         return Colors.orange.withValues(alpha: 0.8);
     }
@@ -238,8 +212,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
         return Icons.visibility;
       case DetectionModel.avmed:
         return Icons.science;
-      case DetectionModel.chairDetection:
-        return Icons.chair;
       case DetectionModel.poseDetection:
         return Icons.accessibility_new;
     }

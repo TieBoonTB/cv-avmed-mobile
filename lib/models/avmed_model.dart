@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:math' as math;
 import 'package:tflite_flutter/tflite_flutter.dart';
 import 'base_model.dart';
 import '../types/detection_types.dart';
@@ -106,13 +107,18 @@ class AVMedModel extends BaseModel {
     }
 
     try {
-      // Preprocess frame for both models
-      final mainInput = _preprocessForMainDetection(frameData, imageHeight, imageWidth);
-      final faceInput = _preprocessForFaceDetection(frameData, imageHeight, imageWidth);
+      // Preprocess frame once and reuse for both models
+      final preprocessed = TFLiteUtils.preprocessImage(
+        frameData,
+        imageHeight,
+        imageWidth,
+        modelInfo.inputHeight,
+        modelInfo.inputWidth,
+      );
       
       // Run dual model inference
-      final mainDetections = await _runMainDetection(mainInput, imageWidth, imageHeight);
-      final faceDetections = await _runFaceDetection(faceInput, imageWidth, imageHeight);
+      final mainDetections = await _runMainDetection(preprocessed, imageWidth, imageHeight);
+      final faceDetections = await _runFaceDetection(preprocessed, imageWidth, imageHeight);
       
       // Combine results
       final allDetections = <DetectionResult>[];
@@ -126,30 +132,6 @@ class AVMedModel extends BaseModel {
     }
   }
 
-  /// Preprocess frame for main detection model
-  /// Based on: backend/utils/pre_process.py logic
-  Float32List _preprocessForMainDetection(Uint8List frameData, int imageHeight, int imageWidth) {
-    return TFLiteUtils.preprocessImage(
-      frameData,
-      imageHeight,
-      imageWidth,
-      modelInfo.inputHeight,
-      modelInfo.inputWidth,
-    );
-  }
-
-  /// Preprocess frame for face detection model  
-  /// Resize to 640x640 as per ModelConfig.FACE_INPUT_DIM
-  Float32List _preprocessForFaceDetection(Uint8List frameData, int imageHeight, int imageWidth) {
-    return TFLiteUtils.preprocessImage(
-      frameData,
-      imageHeight,
-      imageWidth,
-      modelInfo.inputHeight, // Both models use same 224x224 input size
-      modelInfo.inputWidth,
-    );
-  }
-
   /// Run main detection inference
   /// Based on: main detection logic with confidence 0.7
   Future<List<DetectionResult>> _runMainDetection(Float32List input, int originalWidth, int originalHeight) async {
@@ -160,11 +142,60 @@ class AVMedModel extends BaseModel {
       // Create output tensor for main detection
       var output = TFLiteUtils.createOutputForModel(_mainDetectionInterpreter!);
       
+      // Debug: print interpreter tensor info and sample values
+      try {
+        final inTensors = _mainDetectionInterpreter!.getInputTensors();
+        final outTensors = _mainDetectionInterpreter!.getOutputTensors();
+        print('--- Main Detection Debug ---');
+        print('Interpreter input tensor shapes: ${inTensors.map((t) => t.shape).toList()}');
+        print('Interpreter output tensor shapes: ${outTensors.map((t) => t.shape).toList()}');
+
+        // Print prepared inputTensor shape (batch,H,W,C)
+        if (inputTensor.isNotEmpty) {
+          final batch = inputTensor.length;
+          final h = inputTensor[0].length;
+          final w = inputTensor[0][0].length;
+          final c = inputTensor[0][0][0].length;
+          print('Prepared inputTensor shape: [$batch, $h, $w, $c]');
+
+          // Print a few sample values from the beginning of the tensor
+          final samples = <double>[];
+          for (int y = 0; y < math.min(2, h); y++) {
+            for (int x = 0; x < math.min(2, w); x++) {
+              for (int ch = 0; ch < math.min(3, c); ch++) {
+                samples.add(inputTensor[0][y][x][ch]);
+              }
+            }
+          }
+          print('Input tensor sample values (first 12): $samples');
+        }
+      } catch (e) {
+        print('Failed to print main interpreter tensor info: $e');
+      }
+      
       // Run inference
       final success = TFLiteUtils.runInference(_mainDetectionInterpreter!, inputTensor, output);
       if (!success) {
         print('Main detection inference failed');
         return [];
+      }
+      
+      // Debug: print output tensor summary and sample values
+      try {
+        print('Raw output structure: List with length ${output.length}');
+        if (output.isNotEmpty && output[0].isNotEmpty) {
+          final detCount = output[0].length;
+          final featLen = output[0][0].length;
+          print('Output[0] detections: $detCount, features per detection: $featLen');
+          // Print first detection feature vector (first 20 values)
+          if (detCount > 0 && featLen > 0) {
+            final firstVec = List<double>.from(output[0][0]);
+            print('First detection vector (first 20): ${firstVec.take(20).toList()}');
+          }
+        }
+        print('--- End Main Detection Debug ---');
+      } catch (e) {
+        print('Failed to print main detection output debug info: $e');
       }
       
       // Process main detection results
