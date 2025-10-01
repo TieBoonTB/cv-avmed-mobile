@@ -38,7 +38,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
   bool _isProcessing = false;
   Timer? _detectionTimer;
   List<DetectionResult> _lastDetections = [];
-  int _processedFrames = 0;
   int _detectionInterval = 500; // Fixed interval in ms (no longer adaptive)
 
   @override
@@ -169,7 +168,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
       _updateCurrentService();
 
       // Reset statistics when switching models
-      _processedFrames = 0;
       _lastDetections.clear();
     });
 
@@ -230,7 +228,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
 
     setState(() {
       _isDetectionRunning = true;
-      _processedFrames = 0;
     });
 
     _startDetectionTimer();
@@ -283,8 +280,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
         _isProcessing = false;
         return;
       }
-      
-      print('Successfully converted camera image to ${imageBytes.length} bytes');
 
       // Run object detection
       final results = await _currentDetectionService?.processFrame(
@@ -296,7 +291,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
 
       setState(() {
         _lastDetections = results;
-        _processedFrames++;
       });
     } catch (e) {
       print('Error processing camera image: $e');
@@ -510,9 +504,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
                   if (_cameraController.currentImage != null) {
                     final img = _cameraController.currentImage!;
                     imageSize = Size(img.width.toDouble(), img.height.toDouble());
-                    print('[COORDINATE DEBUG] Camera image: ${img.width}x${img.height}');
-                    print('[COORDINATE DEBUG] Canvas size: ${constraints.maxWidth.toStringAsFixed(1)}x${constraints.maxHeight.toStringAsFixed(1)}');
-                    print('[COORDINATE DEBUG] Image size for painter: ${imageSize.width}x${imageSize.height}');
                   }
                 } catch (e) {
                   print('[COORDINATE DEBUG] Error getting image size: $e');
@@ -524,7 +515,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
                     detections: _lastDetections,
                     imageSize: imageSize,
                     minConfidence: 0.2,
-                    flipHorizontally: _cameraController.isFrontCamera,
                   ),
                 );
               }),
@@ -534,174 +524,7 @@ class _CameraTestPageState extends State<CameraTestPage> {
     );
   }
 
-  Widget _buildDetectionResults() {
-    if (_lastDetections.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.7),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: const Text(
-          'No detections',
-          style: TextStyle(color: Colors.white70, fontSize: 14),
-        ),
-      );
-    }
 
-    // Check if we have any error or warning detection results
-    final errorDetection = _lastDetections.firstWhere(
-      (d) => d.isError,
-      orElse: () => DetectionResult(
-          label: '',
-          confidence: 0.0,
-          box: DetectionBox(x: 0, y: 0, width: 0, height: 0)),
-    );
-
-    final warningDetection = _lastDetections.firstWhere(
-      (d) => d.isWarning,
-      orElse: () => DetectionResult(
-          label: '',
-          confidence: 0.0,
-          box: DetectionBox(x: 0, y: 0, width: 0, height: 0)),
-    );
-
-    if (errorDetection.label.isNotEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.red.withValues(alpha: 0.8),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.red, width: 2),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Row(
-              children: [
-                Icon(Icons.error, color: Colors.white, size: 20),
-                SizedBox(width: 8),
-                Text(
-                  'Model Error',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              errorDetection.label,
-              style: const TextStyle(color: Colors.white, fontSize: 12),
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Try switching to a different detection model',
-              style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 11,
-                  fontStyle: FontStyle.italic),
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (warningDetection.label.isNotEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.orange.withValues(alpha: 0.8),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.orange, width: 2),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Row(
-              children: [
-                Icon(Icons.warning, color: Colors.white, size: 20),
-                SizedBox(width: 8),
-                Text(
-                  'Model Warning',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              warningDetection.label,
-              style: const TextStyle(color: Colors.white, fontSize: 12),
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.7),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Detected Objects (${_lastDetections.length}):',
-            style: const TextStyle(
-                color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          ...(_lastDetections
-              .where((d) => !d.isError && !d.isWarning)
-              .take(5)
-              .map((detection) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            detection.label,
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 14),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '${(detection.confidence * 100).toStringAsFixed(1)}%',
-                          style: TextStyle(
-                            color: detection.confidence > 0.7
-                                ? Colors.green
-                                : Colors.orange,
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ))
-              .toList()),
-          if (_lastDetections.where((d) => !d.isError && !d.isWarning).length >
-              5)
-            Text(
-              '... and ${_lastDetections.where((d) => !d.isError && !d.isWarning).length - 5} more',
-              style: const TextStyle(color: Colors.white70, fontSize: 12),
-            ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildControlButtons() {
     return Row(
@@ -798,4 +621,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
       return null;
     }
   }
+
+
 }

@@ -10,10 +10,6 @@ class CameraImageUtils {
   /// This creates a proper Image object that can be processed by ML models
   static img.Image? convertCameraImageToImage(CameraImage cameraImage) {
     try {
-      debugPrint('Camera image format: ${cameraImage.format.group}');
-      debugPrint('Camera image size: ${cameraImage.width}x${cameraImage.height}');
-      debugPrint('Camera image planes: ${cameraImage.planes.length}');
-      
       // For YUV420 format (most common on mobile cameras)
       if (cameraImage.format.group == ImageFormatGroup.yuv420) {
         return convertYUV420ToImage(cameraImage);
@@ -53,8 +49,6 @@ class CameraImageUtils {
       final yPlane = cameraImage.planes[0];
       final uPlane = cameraImage.planes[1];
       final vPlane = cameraImage.planes[2];
-
-      debugPrint('YPlane bytes: ${yPlane.bytes.length}, UPlane bytes: ${uPlane.bytes.length}, VPlane bytes: ${vPlane.bytes.length}');
 
       // Create a new RGB image
       final image = img.Image(width: width, height: height);

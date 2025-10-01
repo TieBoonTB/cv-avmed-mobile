@@ -200,8 +200,8 @@ class AVMedModel extends BaseModel {
         modelInfo.supportedLabels,
         originalWidth,
         originalHeight,
-        modelInfo.inputWidth,
-        modelInfo.inputHeight,
+        originalWidth,  // Use original width instead of model input width
+        originalHeight, // Use original height instead of model input height
       );
 
       // Apply Non-Maximum Suppression to remove duplicate detections
