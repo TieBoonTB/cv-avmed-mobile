@@ -58,7 +58,7 @@ class ModelConfigurations {
       "pill", "pill on tongue", "no pill on tongue", "drink water", 
       "please use transparent cup", "mouth covered", "no pill under tongue"
     ],
-    defaultConfidenceThreshold: 0.7, // Based on AVMED pipeline plan
+    defaultConfidenceThreshold: 0.5, // Based on AVMED pipeline plan
     inputWidth: 224, 
     inputHeight: 224,
     modelPath: 'assets/models/av_med_16-12-24_f16.tflite',

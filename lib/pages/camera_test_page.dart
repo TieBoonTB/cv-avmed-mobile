@@ -273,15 +273,7 @@ class _CameraTestPageState extends State<CameraTestPage> {
     }
 
     try {
-      // Debug camera image format
-      print('Camera image format: ${currentImage.format.group}');
-      print('Camera image size: ${currentImage.width}x${currentImage.height}');
-      print('Camera image planes: ${currentImage.planes.length}');
-      for (int i = 0; i < currentImage.planes.length; i++) {
-        print('Plane $i: ${currentImage.planes[i].bytes.length} bytes, bytesPerRow: ${currentImage.planes[i].bytesPerRow}');
-      }
-      
-      // Convert camera image to bytes for ML processing (measure timing)
+      // Convert camera image to bytes for ML processing
       final imageBytes = CameraImageUtils.convertCameraImageToBytes(
           currentImage,
           isFrontCamera: _cameraController.isFrontCamera);
@@ -369,50 +361,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
               child: Obx(() => Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Camera status
-                      Row(
-                        children: [
-                          Icon(
-                            _cameraController.isInitialized.value
-                                ? Icons.camera_alt
-                                : Icons.camera_alt_outlined,
-                            color: _cameraController.isInitialized.value
-                                ? Colors.green
-                                : Colors.orange,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Camera: ${_cameraController.isInitialized.value ? "Ready" : "Loading..."}',
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 14),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-
-                      // Detection service status
-                      Row(
-                        children: [
-                          Icon(
-                            _isDetectionServiceReady
-                                ? Icons.check_circle
-                                : Icons.error,
-                            color: _isDetectionServiceReady
-                                ? Colors.green
-                                : Colors.red,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Detection: ${_isDetectionServiceReady ? "Ready" : "Loading..."}',
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 14),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-
                       // Detection running status
                       Row(
                         children: [
@@ -433,20 +381,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
                           ),
                         ],
                       ),
-
-                      if (_isDetectionRunning) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          'Processed: $_processedFrames frames',
-                          style: const TextStyle(
-                              color: Colors.white70, fontSize: 12),
-                        ),
-                        Text(
-                          'Interval: ${_detectionInterval}ms (fixed)',
-                          style: const TextStyle(
-                              color: Colors.white70, fontSize: 12),
-                        ),
-                      ],
 
                       // Camera details
                       const SizedBox(height: 8),
@@ -542,6 +476,13 @@ class _CameraTestPageState extends State<CameraTestPage> {
     return Stack(
       children: [
         Positioned.fill(child: CameraFeedView()),
+        
+        // Debug: Show processed image
+        Positioned(
+          top: 100,
+          right: 10,
+          child: _buildProcessedImageDebugView(),
+        ),
         // If current model is poseDetection and we have detections, overlay MLKit painter
         if (_currentModel == DetectionModel.poseDetection)
           Positioned.fill(
@@ -562,23 +503,20 @@ class _CameraTestPageState extends State<CameraTestPage> {
           Positioned.fill(
             child: IgnorePointer(
               child: LayoutBuilder(builder: (context, constraints) {
-                // Determine source image size: prefer previewSize from camera controller if available
+                // Use the actual camera image dimensions that ML processing uses
                 Size imageSize = Size(1, 1);
                 try {
-                  final camCtrl = _cameraController.cameraController;
-                  if (camCtrl != null &&
-                      camCtrl.value.isInitialized &&
-                      camCtrl.value.previewSize != null) {
-                    // previewSize uses width/height relative to sensor orientation
-                    final preview = camCtrl.value.previewSize!;
-                    imageSize = Size(
-                        preview.width.toDouble(), preview.height.toDouble());
-                  } else if (_cameraController.currentImage != null) {
+                  // Always prefer the actual camera image dimensions used for ML processing
+                  if (_cameraController.currentImage != null) {
                     final img = _cameraController.currentImage!;
-                    imageSize =
-                        Size(img.width.toDouble(), img.height.toDouble());
+                    imageSize = Size(img.width.toDouble(), img.height.toDouble());
+                    print('[COORDINATE DEBUG] Camera image: ${img.width}x${img.height}');
+                    print('[COORDINATE DEBUG] Canvas size: ${constraints.maxWidth.toStringAsFixed(1)}x${constraints.maxHeight.toStringAsFixed(1)}');
+                    print('[COORDINATE DEBUG] Image size for painter: ${imageSize.width}x${imageSize.height}');
                   }
-                } catch (_) {}
+                } catch (e) {
+                  print('[COORDINATE DEBUG] Error getting image size: $e');
+                }
 
                 return CustomPaint(
                   size: Size(constraints.maxWidth, constraints.maxHeight),
@@ -788,5 +726,76 @@ class _CameraTestPageState extends State<CameraTestPage> {
         ),
       ],
     );
+  }
+
+  /// Debug view to show the actual processed image that the model receives
+  Widget _buildProcessedImageDebugView() {
+    if (_cameraController.currentImage == null) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      width: 150,
+      height: 120,
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.yellow, width: 2),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: FutureBuilder<Widget?>(
+          future: _buildProcessedImageWidget(),
+          builder: (context, snapshot) {
+            if (snapshot.hasData && snapshot.data != null) {
+              return snapshot.data!;
+            }
+            return Container(
+              color: Colors.black26,
+              child: const Center(
+                child: Text(
+                  'Processing...',
+                  style: TextStyle(color: Colors.white, fontSize: 10),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  /// Create a widget showing the exact image data sent to the model
+  Future<Widget?> _buildProcessedImageWidget() async {
+    try {
+      final currentImage = _cameraController.currentImage;
+      if (currentImage == null) return null;
+
+      // Get the exact same image bytes that are sent to the model
+      final imageBytes = CameraImageUtils.convertCameraImageToBytes(
+        currentImage,
+        isFrontCamera: _cameraController.isFrontCamera,
+      );
+
+      if (imageBytes.isEmpty) return null;
+
+      return Image.memory(
+        imageBytes,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return Container(
+            color: Colors.red.withOpacity(0.3),
+            child: const Center(
+              child: Text(
+                'Image Error',
+                style: TextStyle(color: Colors.white, fontSize: 8),
+              ),
+            ),
+          );
+        },
+      );
+    } catch (e) {
+      print('Debug image error: $e');
+      return null;
+    }
   }
 }

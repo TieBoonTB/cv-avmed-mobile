@@ -1,10 +1,11 @@
 import 'dart:typed_data';
-import 'dart:math' as math;
 import 'package:tflite_flutter/tflite_flutter.dart';
+import 'package:image/image.dart' as img;
 import 'base_model.dart';
 import '../types/detection_types.dart';
 import '../config/model_config.dart';
 import '../utils/tflite_utils.dart';
+import '../utils/camera_image_utils.dart';
 
 /// AVMED model for on-device medication adherence detection
 /// Implements dual model inference (main detection + face detection)
@@ -107,11 +108,15 @@ class AVMedModel extends BaseModel {
     }
 
     try {
-      // Preprocess frame once and reuse for both models
-      final preprocessed = TFLiteUtils.preprocessImage(
-        frameData,
-        imageHeight,
-        imageWidth,
+      // Decode JPEG bytes to Image object 
+      final decodedImage = img.decodeImage(frameData);
+      if (decodedImage == null) {
+        throw Exception('Failed to decode image data');
+      }
+      
+      // Convert image to tensor since letterboxing is already done
+      final preprocessed = CameraImageUtils.imageToTensor(
+        decodedImage,
         modelInfo.inputHeight,
         modelInfo.inputWidth,
       );
@@ -142,60 +147,11 @@ class AVMedModel extends BaseModel {
       // Create output tensor for main detection
       var output = TFLiteUtils.createOutputForModel(_mainDetectionInterpreter!);
       
-      // Debug: print interpreter tensor info and sample values
-      try {
-        final inTensors = _mainDetectionInterpreter!.getInputTensors();
-        final outTensors = _mainDetectionInterpreter!.getOutputTensors();
-        print('--- Main Detection Debug ---');
-        print('Interpreter input tensor shapes: ${inTensors.map((t) => t.shape).toList()}');
-        print('Interpreter output tensor shapes: ${outTensors.map((t) => t.shape).toList()}');
-
-        // Print prepared inputTensor shape (batch,H,W,C)
-        if (inputTensor.isNotEmpty) {
-          final batch = inputTensor.length;
-          final h = inputTensor[0].length;
-          final w = inputTensor[0][0].length;
-          final c = inputTensor[0][0][0].length;
-          print('Prepared inputTensor shape: [$batch, $h, $w, $c]');
-
-          // Print a few sample values from the beginning of the tensor
-          final samples = <double>[];
-          for (int y = 0; y < math.min(2, h); y++) {
-            for (int x = 0; x < math.min(2, w); x++) {
-              for (int ch = 0; ch < math.min(3, c); ch++) {
-                samples.add(inputTensor[0][y][x][ch]);
-              }
-            }
-          }
-          print('Input tensor sample values (first 12): $samples');
-        }
-      } catch (e) {
-        print('Failed to print main interpreter tensor info: $e');
-      }
-      
       // Run inference
       final success = TFLiteUtils.runInference(_mainDetectionInterpreter!, inputTensor, output);
       if (!success) {
         print('Main detection inference failed');
         return [];
-      }
-      
-      // Debug: print output tensor summary and sample values
-      try {
-        print('Raw output structure: List with length ${output.length}');
-        if (output.isNotEmpty && output[0].isNotEmpty) {
-          final detCount = output[0].length;
-          final featLen = output[0][0].length;
-          print('Output[0] detections: $detCount, features per detection: $featLen');
-          // Print first detection feature vector (first 20 values)
-          if (detCount > 0 && featLen > 0) {
-            final firstVec = List<double>.from(output[0][0]);
-            print('First detection vector (first 20): ${firstVec.take(20).toList()}');
-          }
-        }
-        print('--- End Main Detection Debug ---');
-      } catch (e) {
-        print('Failed to print main detection output debug info: $e');
       }
       
       // Process main detection results
@@ -235,19 +191,24 @@ class AVMedModel extends BaseModel {
   /// Extract: x1, y1, x2, y2, conf, cls and normalize coordinates
   List<DetectionResult> _processMainDetectionOutput(dynamic output, int originalWidth, int originalHeight) {
     const double confidenceThreshold = TFLiteUtils.avmedMainConfidence;
+    const double nmsThreshold = TFLiteUtils.avmedNmsThreshold;
     
     try {
-      // Parse output using consolidated TFLite utilities
-      final rawDetections = TFLiteUtils.parseDetectionOutput(
+      final rawDetections = TFLiteUtils.parseDetectionOutputYOLOv8(
         output,
         confidenceThreshold,
         modelInfo.supportedLabels,
         originalWidth,
         originalHeight,
+        modelInfo.inputWidth,
+        modelInfo.inputHeight,
       );
+
+      // Apply Non-Maximum Suppression to remove duplicate detections
+      final nmsDetections = TFLiteUtils.applyNMS(rawDetections, nmsThreshold);
       
       // Convert to DetectionResult objects
-      return rawDetections.map((detection) {
+      return nmsDetections.map((detection) {
         final box = detection['box'] as Map<String, double>;
         return DetectionResult(
           label: detection['label'] as String,
@@ -273,13 +234,15 @@ class AVMedModel extends BaseModel {
     const double nmsThreshold = TFLiteUtils.avmedNmsThreshold;
     
     try {
-      // Parse output using consolidated TFLite utilities
-      final rawDetections = TFLiteUtils.parseDetectionOutput(
+      // Parse output using YOLOv8 parser for consistency with main detection
+      final rawDetections = TFLiteUtils.parseDetectionOutputYOLOv8(
         output,
         confidenceThreshold,
         ['face'], // Face detection only detects faces
         originalWidth,
         originalHeight,
+        modelInfo.inputWidth,
+        modelInfo.inputHeight,
       );
       
       // Apply Non-Maximum Suppression using consolidated utilities

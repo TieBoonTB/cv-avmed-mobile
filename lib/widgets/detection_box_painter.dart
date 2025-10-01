@@ -13,24 +13,13 @@ class DetectionBoxPainter extends CustomPainter {
   DetectionBoxPainter({
     required this.detections,
     required this.imageSize,
-    this.minConfidence = 0.3,
+    this.minConfidence = 0.5,
     this.flipHorizontally = false,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     // If imageSize is zero, nothing to paint
-    if (imageSize.width <= 0 || imageSize.height <= 0) return;
-
-    // Compute BoxFit.cover transform: scale and offset to map source -> destination
-    final double scaleX = size.width / imageSize.width;
-    final double scaleY = size.height / imageSize.height;
-    final double scale = scaleX > scaleY ? scaleX : scaleY; // max
-
-    final double scaledW = imageSize.width * scale;
-    final double scaledH = imageSize.height * scale;
-    final double offsetX = (size.width - scaledW) / 2.0;
-    final double offsetY = (size.height - scaledH) / 2.0;
 
     final Paint boxPaint = Paint()
       ..style = PaintingStyle.stroke
@@ -47,27 +36,40 @@ class DetectionBoxPainter extends CustomPainter {
 
     for (final det in detections) {
       if (det.isError || det.isWarning) continue;
-      if (det.confidence < minConfidence) continue;
-
+      if (det.confidence < minConfidence) continue;  // Use the actual minConfidence parameter
       final box = det.box;
 
-      // box.x/y/width/height are normalized relative to the source image
-      double srcLeft = box.x * imageSize.width;
-      final double srcTop = box.y * imageSize.height;
-      final double srcW = box.width * imageSize.width;
-      final double srcH = box.height * imageSize.height;
+      // Transform coordinates from camera image space to screen space
+      // Account for BoxFit.cover scaling and cropping
+      final double imageAspectRatio = imageSize.width / imageSize.height;
+      final double canvasAspectRatio = size.width / size.height;
+      
+      double scaleX, scaleY, offsetX = 0.0, offsetY = 0.0;
+      
+      if (imageAspectRatio > canvasAspectRatio) {
+        // Image is wider - scale by height, crop width
+        scaleY = size.height / imageSize.height;
+        scaleX = scaleY;
+        final scaledImageWidth = imageSize.width * scaleX;
+        offsetX = (size.width - scaledImageWidth) / 2.0;
+      } else {
+        // Image is taller - scale by width, crop height  
+        scaleX = size.width / imageSize.width;
+        scaleY = scaleX;
+        final scaledImageHeight = imageSize.height * scaleY;
+        offsetY = (size.height - scaledImageHeight) / 2.0;
+      }
+      
+      // Apply transformation to normalized coordinates
+      double dstLeft = (box.x * imageSize.width * scaleX) + offsetX;
+      final double dstTop = (box.y * imageSize.height * scaleY) + offsetY;
+      final double dstW = box.width * imageSize.width * scaleX;
+      final double dstH = box.height * imageSize.height * scaleY;
 
       if (flipHorizontally) {
-        // Mirror horizontally around vertical axis of the source image
-        srcLeft = imageSize.width - (box.x + box.width) * imageSize.width;
+        // Mirror horizontally
+        dstLeft = size.width - (box.x + box.width) * size.width;
       }
-
-      // Map to destination (canvas) using scale + offset computed above
-      final double dstLeft = srcLeft * scale + offsetX;
-      final double dstTop = srcTop * scale + offsetY;
-      final double dstW = srcW * scale;
-      final double dstH = srcH * scale;
-
       final rect = Rect.fromLTWH(dstLeft, dstTop, dstW, dstH);
 
       // Draw background for label

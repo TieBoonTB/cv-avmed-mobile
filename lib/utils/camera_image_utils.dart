@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 import 'dart:async';
 import 'dart:ui' as ui;
-import 'dart:typed_data';
 
 class CameraImageUtils {
   /// Convert CameraImage to Image object for ML processing
@@ -112,7 +111,6 @@ class CameraImageUtils {
             final int b = bytes[pixelIndex];
             final int g = bytes[pixelIndex + 1];
             final int r = bytes[pixelIndex + 2];
-            final int a = bytes[pixelIndex + 3];
             
             // Set pixel in image (convert BGRA to RGB)
             image.setPixelRgb(w, h, r, g, b);
@@ -171,7 +169,11 @@ class CameraImageUtils {
     }
   }
 
-  /// Convert CameraImage directly to encoded bytes (JPEG) for ML processing
+
+
+
+
+  /// Convert CameraImage to encoded bytes (JPEG) for ML processing
   /// This creates properly encoded image bytes that can be decoded by img.decodeImage()
   static Uint8List convertCameraImageToBytes(CameraImage cameraImage, {bool isFrontCamera = false}) {
     try {
@@ -345,5 +347,47 @@ class CameraImageUtils {
       debugPrint('Error converting CameraImage to ui.Image: $e\n$st');
       return null;
     }
+  }
+
+  /// Convert img.Image to Float32List tensor for ML models
+  /// Converts image pixels to normalized (0.0-1.0) RGB values
+  static Float32List imageToTensor(
+    img.Image sourceImage,
+    int targetHeight,
+    int targetWidth,
+  ) {
+    
+    // Ensure image matches target dimensions
+    img.Image finalImage = sourceImage;
+    if (sourceImage.width != targetWidth || sourceImage.height != targetHeight) {
+      finalImage = img.copyResize(
+        sourceImage,
+        width: targetWidth,
+        height: targetHeight,
+        interpolation: img.Interpolation.linear,
+      );
+    }
+    
+    final int totalPixels = targetHeight * targetWidth * 3;
+    final Float32List tensor = Float32List(totalPixels);
+    
+    // Convert image pixels to normalized float array
+    for (int y = 0; y < targetHeight; y++) {
+      for (int x = 0; x < targetWidth; x++) {
+        final pixel = finalImage.getPixel(x, y);
+        
+        // Extract RGB components and normalize
+        final int r = pixel.r.toInt();
+        final int g = pixel.g.toInt();
+        final int b = pixel.b.toInt();
+        
+        final int index = (y * targetWidth + x) * 3;
+        tensor[index] = r / 255.0;     // R
+        tensor[index + 1] = g / 255.0; // G
+        tensor[index + 2] = b / 255.0; // B
+      }
+    }
+    
+    return tensor;
   }
 }
