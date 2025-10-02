@@ -28,6 +28,68 @@ class CameraPage extends StatefulWidget {
   State<CameraPage> createState() => _CameraPageState();
 }
 
+/// A small draggable wrapper which displays [child] and allows the user to
+/// drag it around the screen. The position is clamped to the available
+/// canvas so it doesn't go fully off-screen.
+class DraggableInstructionVideo extends StatefulWidget {
+  final Widget child;
+  final Offset initialPosition;
+
+  const DraggableInstructionVideo({required this.child, this.initialPosition = const Offset(16, 200), Key? key}) : super(key: key);
+
+  @override
+  State<DraggableInstructionVideo> createState() => _DraggableInstructionVideoState();
+}
+
+class _DraggableInstructionVideoState extends State<DraggableInstructionVideo> {
+  late Offset _pos;
+
+  @override
+  void initState() {
+    super.initState();
+    _pos = widget.initialPosition;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Calculate top right position when we have access to MediaQuery
+    final screenSize = MediaQuery.of(context).size;
+    final videoWidth = 200.0; // Approximate video width
+    final padding = 16.0; // Padding from screen edges
+    
+    // Position at top right with some padding
+    final topRightX = screenSize.width - videoWidth - padding;
+    final topRightY = padding + 60.0; // Account for status bar and some spacing
+    
+    // Only update position if using default initial position
+    if (widget.initialPosition == const Offset(16, 200)) {
+      _pos = Offset(topRightX, topRightY);
+    }
+  }
+
+  void _onPanUpdate(DragUpdateDetails details, Size parentSize) {
+    final newX = (_pos.dx + details.delta.dx).clamp(0.0, parentSize.width - 200.0);
+    final newY = (_pos.dy + details.delta.dy).clamp(0.0, parentSize.height - 120.0);
+    setState(() {
+      _pos = Offset(newX, newY);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    return Positioned(
+      left: _pos.dx,
+      top: _pos.dy,
+      child: GestureDetector(
+        onPanUpdate: (details) => _onPanUpdate(details, screenSize),
+        child: widget.child,
+      ),
+    );
+  }
+}
+
 class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   // Controllers
   final CameraFeedController _cameraController =
@@ -525,10 +587,15 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
           ),
           // UI overlay
           _buildUIOverlay(),
+          // Draggable instruction video (renders above UI overlay so user can move it)
+          DraggableInstructionVideo(
+            child: _buildInstructionVideo(),
+          ),
         ],
       ),
     );
   }
+
 
   /// Helper to wrap content in camera preview sizing
   Widget _buildCameraContainer({required Widget child}) {
@@ -610,9 +677,6 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
 
           // Middle spacer
           const Expanded(child: SizedBox()),
-
-          // Instruction video
-          _buildInstructionVideo(),
 
           // Bottom controls
           _buildBottomControls(),
