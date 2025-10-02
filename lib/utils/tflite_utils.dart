@@ -71,8 +71,8 @@ class TFLiteUtils {
   }
 
   /// AVMED-specific constants
-  static const double avmedMainConfidence = 0.00005; // Temporarily lowered to see what model detects
-  static const double avmedFaceConfidence = 0.1;
+  static const double avmedMainConfidence = 0.5; // Temporarily lowered to see what model detects
+  static const double avmedFaceConfidence = 0.5;
   static const double avmedNmsThreshold = 0.5;
   static const int avmedFaceInputSize = 224; 
 
