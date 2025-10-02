@@ -51,7 +51,7 @@ class TestControllerAVMedWebSocket extends BaseTestController {
   Map<String, BaseDetectionService> createDetectionServices() {
     _avmedWebSocketService = AVMedWebSocketDetectionService();
     return {
-      'avmed': _avmedWebSocketService!,
+      'objects': _avmedWebSocketService!,
     };
   }
 
@@ -64,9 +64,9 @@ class TestControllerAVMedWebSocket extends BaseTestController {
         label: 'Hold pill',
         targetLabel: StepConstants.pill,
         videoPath: 'assets/instructions/holding-pill.mp4',
-        targetTimeSeconds: 3.0,
+        targetTimeSeconds: 2.0,
         maxTime: 10.0,
-        confidenceThreshold: 0.7,
+        confidenceThreshold: 0.4,
         frameProcessingIntervalMs: intervalMs,
       ),
       TestStep(
@@ -75,7 +75,7 @@ class TestControllerAVMedWebSocket extends BaseTestController {
         videoPath: 'assets/instructions/pill-on-tongue.mp4',
         targetTimeSeconds: 2.0,
         maxTime: 10.0,
-        confidenceThreshold: 0.7,
+        confidenceThreshold: 0.4,
         frameProcessingIntervalMs: intervalMs,
       ),
       TestStep(
@@ -84,16 +84,16 @@ class TestControllerAVMedWebSocket extends BaseTestController {
         videoPath: 'assets/instructions/no-pill-on-tongue.mp4',
         targetTimeSeconds: 2.0,
         maxTime: 10.0,
-        confidenceThreshold: 0.7,
+        confidenceThreshold: 0.4,
         frameProcessingIntervalMs: intervalMs,
       ),
       TestStep(
         label: 'Drink water',
         targetLabel: StepConstants.drinkWater,
         videoPath: 'assets/instructions/drink-water.mp4',
-        targetTimeSeconds: 3.0,
+        targetTimeSeconds: 2.0,
         maxTime: 15.0,
-        confidenceThreshold: 0.65,
+        confidenceThreshold: 0.4,
         frameProcessingIntervalMs: intervalMs,
       ),
       TestStep(
@@ -102,7 +102,7 @@ class TestControllerAVMedWebSocket extends BaseTestController {
         videoPath: 'assets/instructions/no-pill-under-tongue.mp4',
         targetTimeSeconds: 2.0,
         maxTime: 10.0,
-        confidenceThreshold: 0.7,
+        confidenceThreshold: 0.4,
         frameProcessingIntervalMs: intervalMs,
       ),
     ];
@@ -150,60 +150,6 @@ class TestControllerAVMedWebSocket extends BaseTestController {
     }
   }
 
-  /// Override the test-step processing to use AVMED WebSocket detection outputs
-  @override
-  Future<void> processTestStep() async {
-    final step = currentStep;
-    if (step == null) return;
-    if (!step.isActive) return;
-
-    // Get AVMED WebSocket detections
-    final detections = getDetections('avmed');
-
-    final targetLabel = (step.targetLabel ?? '').toLowerCase();
-    final threshold = step.confidenceThreshold;
-
-    bool found = false;
-    if (_avmedWebSocketService != null) {
-      switch (targetLabel) {
-        case 'pill':
-          found = _avmedWebSocketService!.detectPill(threshold);
-          break;
-        case 'pill on tongue':
-          found = _avmedWebSocketService!.detectPillOnTongue(threshold);
-          break;
-        case 'no pill on tongue':
-          found = _avmedWebSocketService!.detectNoPillOnTongue(threshold);
-          break;
-        case 'drink water':
-          found = _avmedWebSocketService!.detectDrinkingAction(threshold);
-          break;
-        case 'no pill under tongue':
-          found = _avmedWebSocketService!.detectNoPillUnderTongue(threshold);
-          break;
-        default:
-          found = _detectGenericTarget(detections, targetLabel, threshold);
-      }
-    } else {
-      // Fallback to generic detection if WebSocket service not available
-      found = _detectGenericTarget(detections, targetLabel, threshold);
-    }
-
-    // Use the base helper to update counters / advance steps
-    processStepDetectionResult(step, found);
-  }
-
-  // --- Fallback detection helper ---
-  bool _detectGenericTarget(List<DetectionResult> detections, String targetLabel, double threshold) {
-    for (final detection in detections) {
-      if (detection.label.toLowerCase() == targetLabel &&
-          detection.confidence >= threshold) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   /// Get WebSocket connection information
   Map<String, dynamic> getWebSocketInfo() {
     if (_avmedWebSocketService != null) {
@@ -225,39 +171,6 @@ class TestControllerAVMedWebSocket extends BaseTestController {
       await _avmedWebSocketService!.endSession();
       print('[TestController-WS] WebSocket session ended');
     }
-  }
-
-  /// Get AVMED test results with WebSocket information
-  Map<String, dynamic> getAVMedTestResults() {
-    final results = <String, dynamic>{
-      'test_type': 'AVMED Medication Adherence (WebSocket)',
-      'total_steps': testSteps.length,
-      'successful_steps': testSteps.where((s) => s.isSuccess).length,
-      'step_details': <Map<String, dynamic>>[],
-      'websocket_info': getWebSocketInfo(),
-      'detection_method': 'WebSocket',
-    };
-
-    for (var i = 0; i < testSteps.length; i++) {
-      final step = testSteps[i];
-      results['step_details'].add({
-        'step_number': i + 1,
-        'label': step.label,
-        'target_label': step.targetLabel,
-        'is_completed': step.startTime != null && !step.isActive,
-        'is_successful': step.isSuccess,
-        'detected_frames': step.detectionsCount,
-        'target_frames': step.detectionsRequired,
-        'confidence_threshold': step.confidenceThreshold,
-      });
-    }
-
-    final successful = results['successful_steps'] as int;
-    final total = results['total_steps'] as int;
-    results['success_percentage'] = total > 0 ? (successful / total * 100).round() : 0;
-    results['overall_success'] = successful == total;
-    
-    return results;
   }
 
   @override

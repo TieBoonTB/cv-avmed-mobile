@@ -248,44 +248,6 @@ class AVMedWebSocketDetectionService extends BaseDetectionService {
     return detections.first;
   }
 
-  /// Validate AVMED-specific detection patterns
-  /// These methods mirror the existing test controller logic
-  bool detectPill(double threshold) {
-    final result = isLabelDetected('pill', threshold);
-    print('[AVMED-WS] detectPill($threshold): $result');
-    return result;
-  }
-
-  bool detectPillOnTongue(double threshold) {
-    final hasPill = isLabelDetected('pill', threshold) || isLabelDetected('pill on tongue', threshold);
-    final hasMouthOrTongue = isLabelDetected('mouth', threshold) || isLabelDetected('tongue', threshold);
-    final result = hasPill && hasMouthOrTongue;
-    print('[AVMED-WS] detectPillOnTongue($threshold): hasPill=$hasPill, hasMouthOrTongue=$hasMouthOrTongue, result=$result');
-    return result;
-  }
-
-  bool detectNoPillOnTongue(double threshold) {
-    final hasMouthOrTongue = isLabelDetected('mouth', threshold) || isLabelDetected('tongue', threshold);
-    final hasPill = isLabelDetected('pill', threshold);
-    final result = hasMouthOrTongue && !hasPill;
-    print('[AVMED-WS] detectNoPillOnTongue($threshold): hasMouthOrTongue=$hasMouthOrTongue, hasPill=$hasPill, result=$result');
-    return result;
-  }
-
-  bool detectDrinkingAction(double threshold) {
-    final hasWaterOrCup = isLabelDetected('water', threshold) || 
-                         isLabelDetected('cup', threshold) ||
-                         isLabelDetected('drink water', threshold);
-    final hasMouth = isLabelDetected('mouth', threshold);
-    return hasWaterOrCup && hasMouth;
-  }
-
-  bool detectNoPillUnderTongue(double threshold) {
-    final hasMouthOrTongue = isLabelDetected('mouth', threshold) || isLabelDetected('tongue', threshold);
-    final hasPill = isLabelDetected('pill', threshold);
-    return hasMouthOrTongue && !hasPill;
-  }
-
   /// Get connection status information
   Map<String, dynamic> getConnectionInfo() {
     return {
