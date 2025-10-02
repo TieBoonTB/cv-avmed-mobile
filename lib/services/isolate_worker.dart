@@ -96,11 +96,8 @@ class InferenceIsolateWorker {
           await (_model as MediaPipePoseModel)
               .initializeWithBytes(modelBytesMap['main']!);
 
-        case ModelType.yolov8n:
         case ModelType.mlkit:
-        case ModelType.mock:
-          throw Exception(
-              'Model type $modelType not yet implemented in isolate worker');
+          throw Exception('Model type $modelType not yet implemented in isolate worker');
       }
 
       _isInitialized = true;

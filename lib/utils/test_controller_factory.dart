@@ -1,18 +1,14 @@
 import 'package:flutter/material.dart';
 import '../controllers/base_test_controller.dart';
 import '../controllers/test_controller_object_detector.dart';
+import '../controllers/test_controller_avmed.dart';
 import '../controllers/test_controller_sppb_chair_stand.dart';
 import '../controllers/test_controller_avmed.dart';
 import '../controllers/test_controller_avmed_websocket.dart';
 
 /// Enum of supported test types. Use this instead of raw strings to make the
 /// API safer and less error-prone.
-enum TestType { 
-  objectDetector, 
-  sppbChairStand, 
-  avmedLocal,
-  avmedWebSocket,
-}
+enum TestType { objectDetector, avmed, avmedWebSocket, sppbChairStand }
 
 /// Factory for creating test controllers. Accepts a [TestType] enum value.
 class TestControllerFactory {
@@ -34,14 +30,14 @@ class TestControllerFactory {
           onTestComplete: onTestComplete,
           onStepComplete: onStepComplete,
         );
-      case TestType.sppbChairStand:
-        return TestControllerSPPBChairStand(
+      case TestType.avmed:
+        return TestControllerAVMed(
           onTestUpdate: onTestUpdate,
           onTestComplete: onTestComplete,
           onStepComplete: onStepComplete,
         );
-      case TestType.avmedLocal:
-        return TestControllerAVMed(
+      case TestType.sppbChairStand:
+        return TestControllerSPPBChairStand(
           onTestUpdate: onTestUpdate,
           onTestComplete: onTestComplete,
           onStepComplete: onStepComplete,
@@ -63,10 +59,10 @@ class TestControllerFactory {
     switch (type) {
       case TestType.objectDetector:
         return 'Object Detection Test (YOLOv5)';
+      case TestType.avmed:
+        return 'AVMED Medication Adherence Test';
       case TestType.sppbChairStand:
         return 'SPPB Chair Stand Test';
-      case TestType.avmedLocal:
-        return 'AVMED Test (Local Model)';
       case TestType.avmedWebSocket:
         return 'AVMED Test (WebSocket)';
     }
@@ -77,10 +73,10 @@ class TestControllerFactory {
     switch (type) {
       case TestType.objectDetector:
         return 'Real object detection using YOLOv5 model - show different objects';
+      case TestType.avmed:
+        return 'Medication adherence test using AVMED model to detect pill and mouth/tongue actions';
       case TestType.sppbChairStand:
         return 'Chair stand functional test using pose and object detection';
-      case TestType.avmedLocal:
-        return 'Medication adherence test using local TensorFlow Lite AVMED model';
       case TestType.avmedWebSocket:
         return 'Medication adherence test using remote WebSocket AVMED service';
     }

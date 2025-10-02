@@ -1,5 +1,6 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
+import 'dart:async';
 import '../services/base_detection_service.dart';
 import '../types/detection_types.dart';
 import '../utils/camera_image_utils.dart';
@@ -10,6 +11,9 @@ abstract class BaseTestController {
   
   bool _isProcessing = false;
   bool _isDisposed = false;
+  // Timer and guard for periodic step evaluation (decoupled from frame processing)
+  Timer? _stepTimer;
+  bool _isStepProcessing = false;
 
   // Test steps and running state
   List<TestStep>? _testSteps;
@@ -241,6 +245,20 @@ abstract class BaseTestController {
       _testSteps![0].start();
     }
     safeCallback(onTestUpdate);
+    // Start periodic timer to evaluate test steps independently of frame arrival
+    _stepTimer?.cancel();
+    _stepTimer = Timer.periodic(Duration(milliseconds: 500), (timer) async {
+      if (!_isTestRunning) return;
+      if (_isStepProcessing) return; // avoid overlap
+      _isStepProcessing = true;
+      try {
+        await processTestStep();
+      } catch (e) {
+        print('Error in periodic processTestStep: $e');
+      } finally {
+        _isStepProcessing = false;
+      }
+    });
   }
 
   /// Returns time remaining for the current step as a percentage (0-100).
@@ -259,6 +277,11 @@ abstract class BaseTestController {
       cs.isActive = false;
     }
     _currentStepIndex = 0;
+    // Stop periodic step timer
+    try {
+      _stepTimer?.cancel();
+      _stepTimer = null;
+    } catch (_) {}
     safeCallback(onTestUpdate);
   }
 
@@ -319,6 +342,11 @@ abstract class BaseTestController {
   void dispose() {
     _isDisposed = true;
     _isProcessing = false;
+    // Cancel periodic timer if active
+    try {
+      _stepTimer?.cancel();
+      _stepTimer = null;
+    } catch (_) {}
 
     // Dispose all detection services
     for (final service in _detectionServices.values) {

@@ -1,9 +1,11 @@
 import 'dart:typed_data';
 import 'package:tflite_flutter/tflite_flutter.dart';
+import 'package:image/image.dart' as img;
 import 'base_model.dart';
 import '../types/detection_types.dart';
 import '../config/model_config.dart';
 import '../utils/tflite_utils.dart';
+import '../utils/camera_image_utils.dart';
 
 /// AVMED model for on-device medication adherence detection
 /// Implements dual model inference (main detection + face detection)
@@ -106,13 +108,22 @@ class AVMedModel extends BaseModel {
     }
 
     try {
-      // Preprocess frame for both models
-      final mainInput = _preprocessForMainDetection(frameData, imageHeight, imageWidth);
-      final faceInput = _preprocessForFaceDetection(frameData, imageHeight, imageWidth);
+      // Decode JPEG bytes to Image object 
+      final decodedImage = img.decodeImage(frameData);
+      if (decodedImage == null) {
+        throw Exception('Failed to decode image data');
+      }
+      
+      // Convert image to tensor since letterboxing is already done
+      final preprocessed = CameraImageUtils.imageToTensor(
+        decodedImage,
+        modelInfo.inputHeight,
+        modelInfo.inputWidth,
+      );
       
       // Run dual model inference
-      final mainDetections = await _runMainDetection(mainInput, imageWidth, imageHeight);
-      final faceDetections = await _runFaceDetection(faceInput, imageWidth, imageHeight);
+      final mainDetections = await _runMainDetection(preprocessed, imageWidth, imageHeight);
+      final faceDetections = await _runFaceDetection(preprocessed, imageWidth, imageHeight);
       
       // Combine results
       final allDetections = <DetectionResult>[];
@@ -124,30 +135,6 @@ class AVMedModel extends BaseModel {
       print('Error in AVMED frame processing: $e');
       return [DetectionResult.createError('AVMED', e.toString())];
     }
-  }
-
-  /// Preprocess frame for main detection model
-  /// Based on: backend/utils/pre_process.py logic
-  Float32List _preprocessForMainDetection(Uint8List frameData, int imageHeight, int imageWidth) {
-    return TFLiteUtils.preprocessImage(
-      frameData,
-      imageHeight,
-      imageWidth,
-      modelInfo.inputHeight,
-      modelInfo.inputWidth,
-    );
-  }
-
-  /// Preprocess frame for face detection model  
-  /// Resize to 640x640 as per ModelConfig.FACE_INPUT_DIM
-  Float32List _preprocessForFaceDetection(Uint8List frameData, int imageHeight, int imageWidth) {
-    return TFLiteUtils.preprocessImage(
-      frameData,
-      imageHeight,
-      imageWidth,
-      modelInfo.inputHeight, // Both models use same 224x224 input size
-      modelInfo.inputWidth,
-    );
   }
 
   /// Run main detection inference
@@ -204,19 +191,24 @@ class AVMedModel extends BaseModel {
   /// Extract: x1, y1, x2, y2, conf, cls and normalize coordinates
   List<DetectionResult> _processMainDetectionOutput(dynamic output, int originalWidth, int originalHeight) {
     const double confidenceThreshold = TFLiteUtils.avmedMainConfidence;
+    const double nmsThreshold = TFLiteUtils.avmedNmsThreshold;
     
     try {
-      // Parse output using consolidated TFLite utilities
-      final rawDetections = TFLiteUtils.parseDetectionOutput(
+      final rawDetections = TFLiteUtils.parseDetectionOutputYOLOv8(
         output,
         confidenceThreshold,
         modelInfo.supportedLabels,
         originalWidth,
         originalHeight,
+        originalWidth,  // Use original width instead of model input width
+        originalHeight, // Use original height instead of model input height
       );
+
+      // Apply Non-Maximum Suppression to remove duplicate detections
+      final nmsDetections = TFLiteUtils.applyNMS(rawDetections, nmsThreshold);
       
       // Convert to DetectionResult objects
-      return rawDetections.map((detection) {
+      return nmsDetections.map((detection) {
         final box = detection['box'] as Map<String, double>;
         return DetectionResult(
           label: detection['label'] as String,
@@ -242,13 +234,15 @@ class AVMedModel extends BaseModel {
     const double nmsThreshold = TFLiteUtils.avmedNmsThreshold;
     
     try {
-      // Parse output using consolidated TFLite utilities
-      final rawDetections = TFLiteUtils.parseDetectionOutput(
+      // Parse output using YOLOv8 parser for consistency with main detection
+      final rawDetections = TFLiteUtils.parseDetectionOutputYOLOv8(
         output,
         confidenceThreshold,
         ['face'], // Face detection only detects faces
         originalWidth,
         originalHeight,
+        modelInfo.inputWidth,
+        modelInfo.inputHeight,
       );
       
       // Apply Non-Maximum Suppression using consolidated utilities

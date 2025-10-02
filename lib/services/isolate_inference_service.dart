@@ -186,19 +186,10 @@ class IsolateInferenceService {
         // ML Kit doesn't need asset bytes
         return {};
 
-      case ModelType.yolov8n:
-        final yolov8Bytes = await TFLiteUtils.loadModelBytesFromAsset(
-            ModelConfigurations.yolov8n.modelPath);
-        return {'main': yolov8Bytes};
-
       case ModelType.sppbAnalysis:
         final poseBytes2 = await TFLiteUtils.loadModelBytesFromAsset(
             ModelConfigurations.mediapipe.modelPath);
         return {'main': poseBytes2};
-
-      case ModelType.mock:
-        // Mock model doesn't need bytes
-        return {};
     }
   }
 

@@ -125,10 +125,10 @@ class TestLauncherPage extends StatelessWidget {
     switch (testType) {
       case TestType.objectDetector:
         return Icons.visibility;
+      case TestType.avmed:
+        return Icons.science;
       case TestType.sppbChairStand:
         return Icons.accessibility_new;
-      case TestType.avmedLocal:
-        return Icons.medication;
       case TestType.avmedWebSocket:
         return Icons.wifi;
     }

@@ -22,9 +22,7 @@ class ModelInfo {
 /// Available model types
 enum ModelType {
   yolov5s,
-  mock,
   avmed,
-  yolov8n,
   mediapipe,
   mlkit,
   sppbAnalysis,
@@ -53,39 +51,19 @@ class ModelConfigurations {
     modelPath: 'assets/models/yolov5s_f16.tflite',
   );
 
-  static const ModelInfo mock = ModelInfo(
-    name: 'Mock Model',
-    version: '1.0.0',
-    supportedLabels: ['person', 'pill', 'hand'],
-    defaultConfidenceThreshold: 0.8,
-    inputWidth: 320,
-    inputHeight: 320,
-    modelPath: '', // No file needed for mock
-  );
-
   static const ModelInfo avmed = ModelInfo(
     name: 'AVMED Dual Model',
     version: '16-12-24',
     supportedLabels: [
-      'pill', 'mouth', 'hand', 'face', 'tongue', 'water', 'cup', 'person',
-      'pill on tongue', 'no pill on tongue', 'drink water', 'no pill under tongue'
+      "pill", "pill on tongue", "no pill on tongue", "drink water", 
+      "please use transparent cup", "mouth covered", "no pill under tongue"
     ],
-    defaultConfidenceThreshold: 0.7, // Based on AVMED pipeline plan
+    defaultConfidenceThreshold: 0.5,
     inputWidth: 224, 
     inputHeight: 224,
     modelPath: 'assets/models/av_med_16-12-24_f16.tflite',
   );
-
-  static const ModelInfo yolov8n = ModelInfo(
-    name: 'YOLOv8n Chair Detection',
-    version: '1.0.0',
-    supportedLabels: ['chair', 'person', 'couch', 'dining table'],
-    defaultConfidenceThreshold: 0.6,
-    inputWidth: 320,
-    inputHeight: 320,
-    modelPath: 'assets/models/yolov8n_chair.tflite',
-  );
-
+  
   static const ModelInfo mediapipe = ModelInfo(
     name: 'MediaPipe Pose Landmark Full',
     version: '1.0.0',
@@ -127,19 +105,15 @@ class ModelConfigurations {
     defaultConfidenceThreshold: 0.5,
     inputWidth: 0, // ML Kit handles dynamic input sizes
     inputHeight: 0,
-    modelPath: '', // ML Kit 
+    modelPath: '', // handled by mlkit library
   );
 
   static ModelInfo getModelInfo(ModelType type) {
     switch (type) {
       case ModelType.yolov5s:
         return yolov5s;
-      case ModelType.mock:
-        return mock;
       case ModelType.avmed:
         return avmed;
-      case ModelType.yolov8n:
-        return yolov8n;
       case ModelType.mediapipe:
         return mediapipe;
       case ModelType.mlkit:

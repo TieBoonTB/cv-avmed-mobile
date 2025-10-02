@@ -10,7 +10,7 @@ import '../types/detection_types.dart';
 import '../widgets/pose_mlkit_painter.dart';
 import '../widgets/detection_box_painter.dart';
 
-enum DetectionModel { yolov5, avmed, chairDetection, poseDetection }
+enum DetectionModel { yolov5, avmed, poseDetection }
 
 class CameraTestPage extends StatefulWidget {
   const CameraTestPage({super.key});
@@ -27,7 +27,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
   // Detection services (isolate-based and SPPB services)
   IsolateYOLOv5DetectionService? _isolateYolov5Service;
   IsolateAVMedDetectionService? _isolateAvmedService;
-  IsolateChairDetectionService? _isolateChairDetectionService;
   MLKitPoseDetectionService? _isolatePoseDetectionService;
   BaseDetectionService? _currentDetectionService;
   DetectionModel _currentModel =
@@ -39,7 +38,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
   bool _isProcessing = false;
   Timer? _detectionTimer;
   List<DetectionResult> _lastDetections = [];
-  int _processedFrames = 0;
   int _detectionInterval = 500; // Fixed interval in ms (no longer adaptive)
 
   @override
@@ -58,12 +56,10 @@ class _CameraTestPageState extends State<CameraTestPage> {
       _isolateAvmedService = IsolateAVMedDetectionService();
 
       // Initialize isolate SPPB services
-      _isolateChairDetectionService = IsolateChairDetectionService();
       _isolatePoseDetectionService = MLKitPoseDetectionService();
 
       bool yolov5Success = false;
       bool avmedSuccess = false;
-      bool chairSuccess = false;
       bool poseSuccess = false;
 
       try {
@@ -83,14 +79,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
       }
 
       try {
-        await _isolateChairDetectionService?.initialize();
-        print('Isolate Chair Detection service initialized');
-        chairSuccess = true;
-      } catch (e) {
-        print('Failed to initialize isolate Chair Detection service: $e');
-      }
-
-      try {
         await _isolatePoseDetectionService?.initialize();
         print('Isolate Pose Detection service initialized');
         poseSuccess = true;
@@ -101,10 +89,9 @@ class _CameraTestPageState extends State<CameraTestPage> {
       print('Service initialization results:');
       print('  YOLOv5: ${yolov5Success ? "✅" : "❌"}');
       print('  AVMED: ${avmedSuccess ? "✅" : "❌"}');
-      print('  Chair Detection: ${chairSuccess ? "✅" : "❌"}');
       print('  Pose Detection: ${poseSuccess ? "✅" : "❌"}');
 
-      if (yolov5Success || avmedSuccess || chairSuccess || poseSuccess) {
+      if (yolov5Success || avmedSuccess || poseSuccess) {
         // Set initial service based on current model
         _updateCurrentService();
       }
@@ -124,7 +111,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
       try {
         _isolateYolov5Service?.dispose();
         _isolateAvmedService?.dispose();
-        _isolateChairDetectionService?.dispose();
         _isolatePoseDetectionService?.dispose();
       } catch (_) {}
     }
@@ -142,12 +128,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
         _currentDetectionService = _isolateAvmedService?.isInitialized == true
             ? _isolateAvmedService
             : null;
-        break;
-      case DetectionModel.chairDetection:
-        _currentDetectionService =
-            _isolateChairDetectionService?.isInitialized == true
-                ? _isolateChairDetectionService
-                : null;
         break;
       case DetectionModel.poseDetection:
         _currentDetectionService =
@@ -178,9 +158,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
           _currentModel = DetectionModel.avmed;
           break;
         case DetectionModel.avmed:
-          _currentModel = DetectionModel.chairDetection;
-          break;
-        case DetectionModel.chairDetection:
           _currentModel = DetectionModel.poseDetection;
           break;
         case DetectionModel.poseDetection:
@@ -191,7 +168,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
       _updateCurrentService();
 
       // Reset statistics when switching models
-      _processedFrames = 0;
       _lastDetections.clear();
     });
 
@@ -210,8 +186,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
         return 'YOLOv5';
       case DetectionModel.avmed:
         return 'AVMED';
-      case DetectionModel.chairDetection:
-        return 'Chair Detection';
       case DetectionModel.poseDetection:
         return 'Pose Detection';
     }
@@ -224,8 +198,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
         return Colors.blue.withValues(alpha: 0.8);
       case DetectionModel.avmed:
         return Colors.purple.withValues(alpha: 0.8);
-      case DetectionModel.chairDetection:
-        return Colors.green.withValues(alpha: 0.8);
       case DetectionModel.poseDetection:
         return Colors.orange.withValues(alpha: 0.8);
     }
@@ -238,8 +210,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
         return Icons.visibility;
       case DetectionModel.avmed:
         return Icons.science;
-      case DetectionModel.chairDetection:
-        return Icons.chair;
       case DetectionModel.poseDetection:
         return Icons.accessibility_new;
     }
@@ -258,7 +228,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
 
     setState(() {
       _isDetectionRunning = true;
-      _processedFrames = 0;
     });
 
     _startDetectionTimer();
@@ -301,15 +270,7 @@ class _CameraTestPageState extends State<CameraTestPage> {
     }
 
     try {
-      // Debug camera image format
-      print('Camera image format: ${currentImage.format.group}');
-      print('Camera image size: ${currentImage.width}x${currentImage.height}');
-      print('Camera image planes: ${currentImage.planes.length}');
-      for (int i = 0; i < currentImage.planes.length; i++) {
-        print('Plane $i: ${currentImage.planes[i].bytes.length} bytes, bytesPerRow: ${currentImage.planes[i].bytesPerRow}');
-      }
-      
-      // Convert camera image to bytes for ML processing (measure timing)
+      // Convert camera image to bytes for ML processing
       final imageBytes = CameraImageUtils.convertCameraImageToBytes(
           currentImage,
           isFrontCamera: _cameraController.isFrontCamera);
@@ -319,8 +280,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
         _isProcessing = false;
         return;
       }
-      
-      print('Successfully converted camera image to ${imageBytes.length} bytes');
 
       // Run object detection
       final results = await _currentDetectionService?.processFrame(
@@ -332,7 +291,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
 
       setState(() {
         _lastDetections = results;
-        _processedFrames++;
       });
     } catch (e) {
       print('Error processing camera image: $e');
@@ -397,50 +355,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
               child: Obx(() => Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Camera status
-                      Row(
-                        children: [
-                          Icon(
-                            _cameraController.isInitialized.value
-                                ? Icons.camera_alt
-                                : Icons.camera_alt_outlined,
-                            color: _cameraController.isInitialized.value
-                                ? Colors.green
-                                : Colors.orange,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Camera: ${_cameraController.isInitialized.value ? "Ready" : "Loading..."}',
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 14),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-
-                      // Detection service status
-                      Row(
-                        children: [
-                          Icon(
-                            _isDetectionServiceReady
-                                ? Icons.check_circle
-                                : Icons.error,
-                            color: _isDetectionServiceReady
-                                ? Colors.green
-                                : Colors.red,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Detection: ${_isDetectionServiceReady ? "Ready" : "Loading..."}',
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 14),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-
                       // Detection running status
                       Row(
                         children: [
@@ -461,20 +375,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
                           ),
                         ],
                       ),
-
-                      if (_isDetectionRunning) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          'Processed: $_processedFrames frames',
-                          style: const TextStyle(
-                              color: Colors.white70, fontSize: 12),
-                        ),
-                        Text(
-                          'Interval: ${_detectionInterval}ms (fixed)',
-                          style: const TextStyle(
-                              color: Colors.white70, fontSize: 12),
-                        ),
-                      ],
 
                       // Camera details
                       const SizedBox(height: 8),
@@ -570,6 +470,13 @@ class _CameraTestPageState extends State<CameraTestPage> {
     return Stack(
       children: [
         Positioned.fill(child: CameraFeedView()),
+        
+        // Debug: Show processed image
+        Positioned(
+          top: 100,
+          right: 10,
+          child: _buildProcessedImageDebugView(),
+        ),
         // If current model is poseDetection and we have detections, overlay MLKit painter
         if (_currentModel == DetectionModel.poseDetection)
           Positioned.fill(
@@ -590,23 +497,17 @@ class _CameraTestPageState extends State<CameraTestPage> {
           Positioned.fill(
             child: IgnorePointer(
               child: LayoutBuilder(builder: (context, constraints) {
-                // Determine source image size: prefer previewSize from camera controller if available
+                // Use the actual camera image dimensions that ML processing uses
                 Size imageSize = Size(1, 1);
                 try {
-                  final camCtrl = _cameraController.cameraController;
-                  if (camCtrl != null &&
-                      camCtrl.value.isInitialized &&
-                      camCtrl.value.previewSize != null) {
-                    // previewSize uses width/height relative to sensor orientation
-                    final preview = camCtrl.value.previewSize!;
-                    imageSize = Size(
-                        preview.width.toDouble(), preview.height.toDouble());
-                  } else if (_cameraController.currentImage != null) {
+                  // Always prefer the actual camera image dimensions used for ML processing
+                  if (_cameraController.currentImage != null) {
                     final img = _cameraController.currentImage!;
-                    imageSize =
-                        Size(img.width.toDouble(), img.height.toDouble());
+                    imageSize = Size(img.width.toDouble(), img.height.toDouble());
                   }
-                } catch (_) {}
+                } catch (e) {
+                  print('[COORDINATE DEBUG] Error getting image size: $e');
+                }
 
                 return CustomPaint(
                   size: Size(constraints.maxWidth, constraints.maxHeight),
@@ -614,7 +515,6 @@ class _CameraTestPageState extends State<CameraTestPage> {
                     detections: _lastDetections,
                     imageSize: imageSize,
                     minConfidence: 0.2,
-                    flipHorizontally: _cameraController.isFrontCamera,
                   ),
                 );
               }),
@@ -624,174 +524,7 @@ class _CameraTestPageState extends State<CameraTestPage> {
     );
   }
 
-  Widget _buildDetectionResults() {
-    if (_lastDetections.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.7),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: const Text(
-          'No detections',
-          style: TextStyle(color: Colors.white70, fontSize: 14),
-        ),
-      );
-    }
 
-    // Check if we have any error or warning detection results
-    final errorDetection = _lastDetections.firstWhere(
-      (d) => d.isError,
-      orElse: () => DetectionResult(
-          label: '',
-          confidence: 0.0,
-          box: DetectionBox(x: 0, y: 0, width: 0, height: 0)),
-    );
-
-    final warningDetection = _lastDetections.firstWhere(
-      (d) => d.isWarning,
-      orElse: () => DetectionResult(
-          label: '',
-          confidence: 0.0,
-          box: DetectionBox(x: 0, y: 0, width: 0, height: 0)),
-    );
-
-    if (errorDetection.label.isNotEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.red.withValues(alpha: 0.8),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.red, width: 2),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Row(
-              children: [
-                Icon(Icons.error, color: Colors.white, size: 20),
-                SizedBox(width: 8),
-                Text(
-                  'Model Error',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              errorDetection.label,
-              style: const TextStyle(color: Colors.white, fontSize: 12),
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Try switching to a different detection model',
-              style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 11,
-                  fontStyle: FontStyle.italic),
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (warningDetection.label.isNotEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.orange.withValues(alpha: 0.8),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.orange, width: 2),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Row(
-              children: [
-                Icon(Icons.warning, color: Colors.white, size: 20),
-                SizedBox(width: 8),
-                Text(
-                  'Model Warning',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              warningDetection.label,
-              style: const TextStyle(color: Colors.white, fontSize: 12),
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.7),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Detected Objects (${_lastDetections.length}):',
-            style: const TextStyle(
-                color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          ...(_lastDetections
-              .where((d) => !d.isError && !d.isWarning)
-              .take(5)
-              .map((detection) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            detection.label,
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 14),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '${(detection.confidence * 100).toStringAsFixed(1)}%',
-                          style: TextStyle(
-                            color: detection.confidence > 0.7
-                                ? Colors.green
-                                : Colors.orange,
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ))
-              .toList()),
-          if (_lastDetections.where((d) => !d.isError && !d.isWarning).length >
-              5)
-            Text(
-              '... and ${_lastDetections.where((d) => !d.isError && !d.isWarning).length - 5} more',
-              style: const TextStyle(color: Colors.white70, fontSize: 12),
-            ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildControlButtons() {
     return Row(
@@ -817,4 +550,77 @@ class _CameraTestPageState extends State<CameraTestPage> {
       ],
     );
   }
+
+  /// Debug view to show the actual processed image that the model receives
+  Widget _buildProcessedImageDebugView() {
+    if (_cameraController.currentImage == null) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      width: 150,
+      height: 120,
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.yellow, width: 2),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: FutureBuilder<Widget?>(
+          future: _buildProcessedImageWidget(),
+          builder: (context, snapshot) {
+            if (snapshot.hasData && snapshot.data != null) {
+              return snapshot.data!;
+            }
+            return Container(
+              color: Colors.black26,
+              child: const Center(
+                child: Text(
+                  'Processing...',
+                  style: TextStyle(color: Colors.white, fontSize: 10),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  /// Create a widget showing the exact image data sent to the model
+  Future<Widget?> _buildProcessedImageWidget() async {
+    try {
+      final currentImage = _cameraController.currentImage;
+      if (currentImage == null) return null;
+
+      // Get the exact same image bytes that are sent to the model
+      final imageBytes = CameraImageUtils.convertCameraImageToBytes(
+        currentImage,
+        isFrontCamera: _cameraController.isFrontCamera,
+      );
+
+      if (imageBytes.isEmpty) return null;
+
+      return Image.memory(
+        imageBytes,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return Container(
+            color: Colors.red.withOpacity(0.3),
+            child: const Center(
+              child: Text(
+                'Image Error',
+                style: TextStyle(color: Colors.white, fontSize: 8),
+              ),
+            ),
+          );
+        },
+      );
+    } catch (e) {
+      print('Debug image error: $e');
+      return null;
+    }
+  }
+
+
 }

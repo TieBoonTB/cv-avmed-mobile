@@ -201,9 +201,9 @@ class LandingPage extends StatelessWidget {
                   ),
                 ),
 
-                // const SizedBox(height: 16),
+                const SizedBox(height: 16),
 
-                // _buildCameraTestButton(context),
+                _buildCameraTestButton(context),
 
                 const SizedBox(height: 12),
 
