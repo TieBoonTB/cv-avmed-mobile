@@ -38,7 +38,7 @@ class TestControllerAVMed extends BaseTestController {
         targetLabel: StepConstants.pill,
         videoPath: 'assets/instructions/holding-pill.mp4',
         targetTimeSeconds: 2.0,
-        maxTime: 10.0,
+        maxTime: 15.0,
         confidenceThreshold: 0.5,
         frameProcessingIntervalMs: intervalMs,
       ),

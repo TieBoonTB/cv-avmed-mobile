@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 import 'dart:async';
 import 'dart:ui' as ui;
+import 'dart:io' show Platform;
 
 class CameraImageUtils {
   /// Convert CameraImage to Image object for ML processing
@@ -185,17 +186,30 @@ class CameraImageUtils {
         return Uint8List(0);
       }
       
-      // Apply orientation correction based on camera type
+      // Apply platform-specific orientation correction
       img.Image processedImage;
-      if (isFrontCamera) {
-        // Front cameras need special handling:
-        // 1. Rotate 270 degrees clockwise (or -90 degrees) to correct orientation
-        // 2. Flip horizontally to correct the mirror effect
-        final rotatedImage = img.copyRotate(image, angle: 270);
-        processedImage = img.flipHorizontal(rotatedImage);
+      
+      if (Platform.isIOS) {
+        // iOS camera orientation handling
+        if (isFrontCamera) {
+          // iOS front camera: Flip horizontally first, then rotate appropriately
+          final flippedImage = img.flipHorizontal(image);
+          processedImage = flippedImage; // No rotation needed for iOS front camera
+        } else {
+          // iOS back camera: Currently rotated 90° right, need to counter-rotate
+          // Rotate 270 degrees (or -90 degrees) to correct the 90° right rotation
+          processedImage = img.copyRotate(image, angle: 270);
+        }
       } else {
-        // Back cameras need 90 degrees clockwise rotation only
-        processedImage = img.copyRotate(image, angle: 90);
+        // Android camera orientation handling (existing logic)
+        if (isFrontCamera) {
+          // Android front cameras: Rotate 270 degrees and flip horizontally
+          final rotatedImage = img.copyRotate(image, angle: 270);
+          processedImage = img.flipHorizontal(rotatedImage);
+        } else {
+          // Android back cameras: Rotate 90 degrees clockwise
+          processedImage = img.copyRotate(image, angle: 90);
+        }
       }
       
       // Encode as JPEG
