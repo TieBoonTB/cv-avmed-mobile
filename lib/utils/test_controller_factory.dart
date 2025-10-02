@@ -10,6 +10,7 @@ import '../controllers/test_controller_avmed_websocket.dart';
 enum TestType { 
   objectDetector, 
   sppbChairStand, 
+  avmedLocal,
   avmedWebSocket,
 }
 
@@ -78,6 +79,8 @@ class TestControllerFactory {
         return 'Real object detection using YOLOv5 model - show different objects';
       case TestType.sppbChairStand:
         return 'Chair stand functional test using pose and object detection';
+      case TestType.avmedLocal:
+        return 'Medication adherence test using local TensorFlow Lite AVMED model';
       case TestType.avmedWebSocket:
         return 'Medication adherence test using remote WebSocket AVMED service';
     }

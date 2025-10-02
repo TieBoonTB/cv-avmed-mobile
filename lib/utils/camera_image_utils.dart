@@ -4,17 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
 import 'dart:async';
 import 'dart:ui' as ui;
-import 'dart:typed_data';
+import 'dart:io' show Platform;
 
 class CameraImageUtils {
   /// Convert CameraImage to Image object for ML processing
   /// This creates a proper Image object that can be processed by ML models
   static img.Image? convertCameraImageToImage(CameraImage cameraImage) {
     try {
-      debugPrint('Camera image format: ${cameraImage.format.group}');
-      debugPrint('Camera image size: ${cameraImage.width}x${cameraImage.height}');
-      debugPrint('Camera image planes: ${cameraImage.planes.length}');
-      
       // For YUV420 format (most common on mobile cameras)
       if (cameraImage.format.group == ImageFormatGroup.yuv420) {
         return convertYUV420ToImage(cameraImage);
@@ -54,8 +50,6 @@ class CameraImageUtils {
       final yPlane = cameraImage.planes[0];
       final uPlane = cameraImage.planes[1];
       final vPlane = cameraImage.planes[2];
-
-      debugPrint('YPlane bytes: ${yPlane.bytes.length}, UPlane bytes: ${uPlane.bytes.length}, VPlane bytes: ${vPlane.bytes.length}');
 
       // Create a new RGB image
       final image = img.Image(width: width, height: height);
@@ -112,7 +106,6 @@ class CameraImageUtils {
             final int b = bytes[pixelIndex];
             final int g = bytes[pixelIndex + 1];
             final int r = bytes[pixelIndex + 2];
-            final int a = bytes[pixelIndex + 3];
             
             // Set pixel in image (convert BGRA to RGB)
             image.setPixelRgb(w, h, r, g, b);
@@ -171,7 +164,11 @@ class CameraImageUtils {
     }
   }
 
-  /// Convert CameraImage directly to encoded bytes (JPEG) for ML processing
+
+
+
+
+  /// Convert CameraImage to encoded bytes (JPEG) for ML processing
   /// This creates properly encoded image bytes that can be decoded by img.decodeImage()
   static Uint8List convertCameraImageToBytes(CameraImage cameraImage, {bool isFrontCamera = false}) {
     try {
@@ -189,17 +186,30 @@ class CameraImageUtils {
         return Uint8List(0);
       }
       
-      // Apply orientation correction based on camera type
+      // Apply platform-specific orientation correction
       img.Image processedImage;
-      if (isFrontCamera) {
-        // Front cameras need special handling:
-        // 1. Rotate 270 degrees clockwise (or -90 degrees) to correct orientation
-        // 2. Flip horizontally to correct the mirror effect
-        final rotatedImage = img.copyRotate(image, angle: 270);
-        processedImage = img.flipHorizontal(rotatedImage);
+      
+      if (Platform.isIOS) {
+        // iOS camera orientation handling
+        if (isFrontCamera) {
+          // iOS front camera: Flip horizontally first, then rotate appropriately
+          final flippedImage = img.flipHorizontal(image);
+          processedImage = flippedImage; // No rotation needed for iOS front camera
+        } else {
+          // iOS back camera: Currently rotated 90° right, need to counter-rotate
+          // Rotate 270 degrees (or -90 degrees) to correct the 90° right rotation
+          processedImage = img.copyRotate(image, angle: 270);
+        }
       } else {
-        // Back cameras need 90 degrees clockwise rotation only
-        processedImage = img.copyRotate(image, angle: 90);
+        // Android camera orientation handling (existing logic)
+        if (isFrontCamera) {
+          // Android front cameras: Rotate 270 degrees and flip horizontally
+          final rotatedImage = img.copyRotate(image, angle: 270);
+          processedImage = img.flipHorizontal(rotatedImage);
+        } else {
+          // Android back cameras: Rotate 90 degrees clockwise
+          processedImage = img.copyRotate(image, angle: 90);
+        }
       }
       
       // Encode as JPEG
@@ -345,5 +355,47 @@ class CameraImageUtils {
       debugPrint('Error converting CameraImage to ui.Image: $e\n$st');
       return null;
     }
+  }
+
+  /// Convert img.Image to Float32List tensor for ML models
+  /// Converts image pixels to normalized (0.0-1.0) RGB values
+  static Float32List imageToTensor(
+    img.Image sourceImage,
+    int targetHeight,
+    int targetWidth,
+  ) {
+    
+    // Ensure image matches target dimensions
+    img.Image finalImage = sourceImage;
+    if (sourceImage.width != targetWidth || sourceImage.height != targetHeight) {
+      finalImage = img.copyResize(
+        sourceImage,
+        width: targetWidth,
+        height: targetHeight,
+        interpolation: img.Interpolation.linear,
+      );
+    }
+    
+    final int totalPixels = targetHeight * targetWidth * 3;
+    final Float32List tensor = Float32List(totalPixels);
+    
+    // Convert image pixels to normalized float array
+    for (int y = 0; y < targetHeight; y++) {
+      for (int x = 0; x < targetWidth; x++) {
+        final pixel = finalImage.getPixel(x, y);
+        
+        // Extract RGB components and normalize
+        final int r = pixel.r.toInt();
+        final int g = pixel.g.toInt();
+        final int b = pixel.b.toInt();
+        
+        final int index = (y * targetWidth + x) * 3;
+        tensor[index] = r / 255.0;     // R
+        tensor[index + 1] = g / 255.0; // G
+        tensor[index + 2] = b / 255.0; // B
+      }
+    }
+    
+    return tensor;
   }
 }

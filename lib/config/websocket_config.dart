@@ -1,8 +1,8 @@
 /// WebSocket configuration constants and utilities
 class WebSocketConfig {
   // Default server configurations
-//   static const String defaultServerUrl = 'wss://avmed-backend-pwa.blackplant-aea8002c.southeastasia.azurecontainerapps.io/detect_pt';
-  static const String defaultServerUrl = 'ws://localhost:8008/detect_pt';
+  static const String defaultServerUrl = 'wss://avmed-backend-pwa.blackplant-aea8002c.southeastasia.azurecontainerapps.io/detect_pt';
+  // static const String defaultServerUrl = 'ws://localhost:8008/detect_pt';
   static const String defaultServerHost = 'avmed-backend-pwa.blackplant-aea8002c.southeastasia.azurecontainerapps.io';
   static const int defaultServerPort = 8008;
   static const String defaultEndpoint = '/detect_pt';
