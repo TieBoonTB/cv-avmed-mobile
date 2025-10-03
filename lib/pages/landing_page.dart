@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
-import 'guide_page.dart';
-import 'camera_test_page.dart';
-import 'test_launcher_page.dart';
-import 'device_info_page.dart';
+import 'camera_page.dart';
+import '../utils/test_controller_factory.dart';
 
 class LandingPage extends StatelessWidget {
-  Widget _buildCameraTestButton(BuildContext context) {
+  Widget _buildAVMedTestButton(BuildContext context) {
     return SizedBox(
       width: double.infinity,
       height: 56,
@@ -13,93 +11,30 @@ class LandingPage extends StatelessWidget {
         onPressed: () {
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (context) => CameraTestPage()),
-          );
-        },
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.white.withValues(alpha: 0.2),
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.white.withValues(alpha: 0.3)),
-          ),
-          elevation: 4,
-        ),
-        child: const Text(
-          'Camera Test (Dev)',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTestLauncherButton(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      height: 56,
-      child: ElevatedButton(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => TestLauncherPage()),
-          );
-        },
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.white.withValues(alpha: 0.15),
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.white.withValues(alpha: 0.3)),
-          ),
-          elevation: 4,
-        ),
-        child: const Text(
-          'Test Launcher (Dev)',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDeviceInfoButton(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      height: 56,
-      child: ElevatedButton(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const DeviceInfoPage()),
-          );
-        },
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.white.withValues(alpha: 0.1),
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.white.withValues(alpha: 0.3)),
-          ),
-          elevation: 4,
-        ),
-        child: const Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.smartphone, size: 20),
-            SizedBox(width: 8),
-            Text(
-              'Device Information',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
+            MaterialPageRoute(
+              builder: (context) => CameraPage(
+                patientCode: 'DEMO_${DateTime.now().millisecondsSinceEpoch}',
+                testType: TestType.avmed, // Use local AVMED model
+                isTrial: false,
               ),
             ),
-          ],
+          );
+        },
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.white,
+          foregroundColor: Color(0xFFA855F7), // Purple text
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          elevation: 8,
+          shadowColor: Colors.black.withValues(alpha: 0.3),
+        ),
+        child: const Text(
+          'AVMED Test',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
         ),
       ),
     );
@@ -171,47 +106,8 @@ class LandingPage extends StatelessWidget {
 
                 const SizedBox(height: 48),
 
-                // Get Started button
-                SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (context) => GuidePage()),
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: Color(0xFFA855F7), // Purple text
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      elevation: 8,
-                      shadowColor: Colors.black.withValues(alpha: 0.3),
-                    ),
-                    child: const Text(
-                      'Get Started',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 16),
-
-                _buildCameraTestButton(context),
-
-                const SizedBox(height: 12),
-
-                _buildTestLauncherButton(context),
-
-                // const SizedBox(height: 12),
-
-                // _buildDeviceInfoButton(context),
+                // AVMED Test button
+                _buildAVMedTestButton(context),
 
                 const Spacer(),
 

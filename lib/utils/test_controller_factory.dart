@@ -60,7 +60,7 @@ class TestControllerFactory {
       case TestType.objectDetector:
         return 'Object Detection Test (YOLOv5)';
       case TestType.avmed:
-        return 'AVMED Medication Adherence Test';
+        return 'AVMED Test';
       case TestType.sppbChairStand:
         return 'SPPB Chair Stand Test';
       case TestType.avmedWebSocket:
