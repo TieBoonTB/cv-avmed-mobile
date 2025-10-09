@@ -1,10 +1,7 @@
-import '../services/base_detection_service.dart';
-import '../models/base_model.dart';
 import '../types/detection_types.dart';
-import 'dart:typed_data';
 
-/// Clinical analysis service for SPPB assessment
-class SPPBAnalysisService extends BaseDetectionService {
+/// Clinical analysis helper for SPPB assessment.
+class SPPBAnalysisService {
   // Movement tracking state
   List<double> _hipAngleHistory = [];
   List<String> _movementPhaseHistory = [];
@@ -19,38 +16,18 @@ class SPPBAnalysisService extends BaseDetectionService {
   double _totalTestTime = 0.0;
   double _movementSmoothness = 0.0;
 
-  @override
-  String get serviceType => 'SPPB Clinical Analysis Service';
   bool _armsCrossed = false;
-
-  @override
-  BaseModel? get currentModel => null; // Analysis service doesn't use a model
-
-  @override
+  /// Initialize the analysis helper. This prepares internal state.
   Future<void> initialize() async {
     try {
       print('Initializing SPPB Analysis Service...');
       resetMetrics();
-      setInitialized(true);
+      // Mark as initialized by ensuring metrics are reset.
       print('SPPB Analysis Service initialized successfully');
     } catch (e) {
       print('Error initializing SPPB Analysis Service: $e');
-      setInitialized(false);
       rethrow;
     }
-  }
-
-  @override
-  Future<List<DetectionResult>> processFrame(
-      Uint8List frameData, int imageHeight, int imageWidth) async {
-    if (!isInitialized) {
-      throw StateError(
-          'SPPB Analysis Service not initialized. Call initialize() first.');
-    }
-
-    // This service doesn't process frames directly, it analyzes pose data
-    // Return empty list as it's a data analysis service, not a detection service
-    return [];
   }
 
   /// Analyze movement patterns from pose landmarks
@@ -215,7 +192,6 @@ class SPPBAnalysisService extends BaseDetectionService {
     return false;
   }
 
-
   /// Analyze movement phase based on hip angle changes
   String _analyzeMovementPhase({
     required double hipAngle,
@@ -291,7 +267,6 @@ class SPPBAnalysisService extends BaseDetectionService {
     return false;
   }
 
-
   void _updateClinicalMetrics(DateTime timestamp) {
     _testStartTime ??= timestamp;
     _totalTestTime =
@@ -337,10 +312,9 @@ class SPPBAnalysisService extends BaseDetectionService {
     _movementSmoothness = 0.0;
   }
 
-  @override
+  /// Dispose any resources used by the analysis helper.
   void dispose() {
     resetMetrics();
-    super.dispose();
   }
 }
 

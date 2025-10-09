@@ -5,7 +5,7 @@ import 'package:namer_app/utils/camera_image_utils.dart';
 import 'base_test_controller.dart';
 import '../services/isolate_detection_classes.dart';
 import '../services/mlkit_pose_detection_service.dart';
-import '../services/sppb_detection_services.dart';
+import '../services/sppb_analysis_service.dart';
 import '../services/base_detection_service.dart';
 
 /// Simple object detection test controller using YOLOv5 (isolate)
@@ -35,7 +35,7 @@ class TestControllerSPPBChairStand extends BaseTestController {
   /// Convenience getters for typed detection services
   IsolateYOLOv5DetectionService get yoloService => detectionServices['objects'] as IsolateYOLOv5DetectionService;
   MLKitPoseDetectionService get poseService => detectionServices['pose'] as MLKitPoseDetectionService;
-  SPPBAnalysisService get analysisService => detectionServices['analysis'] as SPPBAnalysisService;
+  late final SPPBAnalysisService analysisService;
 
   @override
   Map<String, BaseDetectionService> createDetectionServices() {
@@ -43,7 +43,6 @@ class TestControllerSPPBChairStand extends BaseTestController {
       'objects':
           IsolateYOLOv5DetectionService(), // Use YOLOv5 for both chair and person detection
       'pose': MLKitPoseDetectionService(),
-      'analysis': SPPBAnalysisService(),
     };
   }
 
@@ -119,6 +118,28 @@ class TestControllerSPPBChairStand extends BaseTestController {
         print('Error in processTestStep: $e');
       }
     }
+  }
+
+  @override
+  Future<void> initialize() async {
+    // Initialize detection services first
+    await super.initialize();
+    // Create and initialize the standalone SPPBAnalysisService
+    analysisService = SPPBAnalysisService();
+    try {
+      await analysisService.initialize();
+    } catch (e) {
+      // Initialization is best-effort; controller can still operate without analysis
+      print('Warning: SPPBAnalysisService failed to initialize: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    try {
+      analysisService.dispose();
+    } catch (_) {}
+    super.dispose();
   }
 
   // Use YoloV5 model for object detection
@@ -204,8 +225,6 @@ class TestControllerSPPBChairStand extends BaseTestController {
 
   bool _validateChairDetection(List<DetectionResult> detections) {
     final chairs = detections.where((d) => d.label.toLowerCase() == 'chair').toList();
-    return true;
-
     if (chairs.isEmpty) {
       return false;
     }
