@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'base_test_controller.dart';
-import '../services/isolate_detection_classes.dart';
+import '../config/model_config.dart';
+import '../services/isolate_detection_service.dart';
 import '../services/base_detection_service.dart';
 
 /// Simple object detection test controller using YOLOv5 (isolate)
@@ -23,7 +24,7 @@ class TestControllerObjectDetector extends BaseTestController {
   @override
   Map<String, BaseDetectionService> createDetectionServices() {
     return {
-      'objects': IsolateYOLOv5DetectionService(),
+      'objects': IsolateDetectionService(ModelType.yolov5s),
     };
   }
 

@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'dart:async';
+import '../config/model_config.dart';
+import '../services/isolate_detection_service.dart';
 import '../services/mlkit_pose_detection_service.dart';
 import '../controllers/camera_feed_controller.dart';
-import '../services/isolate_detection_classes.dart';
 import '../services/base_detection_service.dart';
 import '../utils/camera_image_utils.dart';
 import '../types/detection_types.dart';
@@ -25,8 +26,8 @@ class _CameraTestPageState extends State<CameraTestPage> {
       Get.put(CameraFeedController());
 
   // Detection services (isolate-based and SPPB services)
-  IsolateYOLOv5DetectionService? _isolateYolov5Service;
-  IsolateAVMedDetectionService? _isolateAvmedService;
+  BaseDetectionService? _isolateYolov5Service;
+  BaseDetectionService? _isolateAvmedService;
   MLKitPoseDetectionService? _isolatePoseDetectionService;
   BaseDetectionService? _currentDetectionService;
   DetectionModel _currentModel =
@@ -52,8 +53,8 @@ class _CameraTestPageState extends State<CameraTestPage> {
       print('Initializing detection services...');
 
       // Initialize isolate-based services
-      _isolateYolov5Service = IsolateYOLOv5DetectionService();
-      _isolateAvmedService = IsolateAVMedDetectionService();
+      _isolateYolov5Service = IsolateDetectionService(ModelType.yolov5s);
+      _isolateAvmedService = IsolateDetectionService(ModelType.avmed);
 
       // Initialize isolate SPPB services
       _isolatePoseDetectionService = MLKitPoseDetectionService();

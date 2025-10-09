@@ -3,7 +3,6 @@ import '../controllers/base_test_controller.dart';
 import '../controllers/test_controller_object_detector.dart';
 import '../controllers/test_controller_avmed.dart';
 import '../controllers/test_controller_sppb_chair_stand.dart';
-import '../controllers/test_controller_avmed.dart';
 import '../controllers/test_controller_avmed_websocket.dart';
 
 /// Enum of supported test types. Use this instead of raw strings to make the

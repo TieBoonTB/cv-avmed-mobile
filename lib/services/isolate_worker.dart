@@ -74,14 +74,12 @@ class InferenceIsolateWorker {
         case ModelType.yolov5s:
           _model = YOLOv5sModel();
           // Initialize with model bytes instead of asset path
-          await (_model as YOLOv5sModel)
-              .initializeWithBytes(modelBytesMap['main']!);
+          await (_model as YOLOv5sModel).initializeWithBytes(modelBytesMap['main']!);
 
         case ModelType.avmed:
           _model = AVMedModel();
           // Initialize with both model bytes
-          await (_model as AVMedModel).initializeWithBytes(
-              modelBytesMap['main']!, modelBytesMap['face']!);
+          await (_model as AVMedModel).initializeWithBytes(modelBytesMap['main']!, modelBytesMap['face']!);
 
         case ModelType.mlkit:
           throw Exception('Model type $modelType not yet implemented in isolate worker');

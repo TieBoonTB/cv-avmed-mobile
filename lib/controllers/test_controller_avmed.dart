@@ -1,8 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'base_test_controller.dart';
-import '../services/isolate_detection_classes.dart';
 import '../services/base_detection_service.dart';
 import "../utils/step_constants.dart";
+import '../config/model_config.dart';
+import '../services/isolate_detection_service.dart';
 
 /// AVMED Test Controller using the new BaseTestControllerNew API
 /// Implements the medication adherence test pipeline using the isolate AVMED model
@@ -23,7 +24,7 @@ class TestControllerAVMed extends BaseTestController {
   @override
   Map<String, BaseDetectionService> createDetectionServices() {
     return {
-      'objects': IsolateAVMedDetectionService(),
+      'objects': IsolateDetectionService(ModelType.avmed),
     };
   }
 

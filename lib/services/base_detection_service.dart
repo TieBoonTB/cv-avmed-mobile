@@ -16,26 +16,14 @@ abstract class BaseDetectionService {
   /// Stream of detection results
   Stream<List<DetectionResult>> get detectionStream =>
       _detectionController.stream;
-
-  /// Check if service is initialized
   bool get isInitialized => _isInitialized;
-
-  /// Get the last detection results
   List<DetectionResult> get lastDetections => _lastDetections;
 
   /// Abstract methods to be implemented by subclasses
-
-  /// Initialize the detection service and its models
   Future<void> initialize();
+  Future<List<DetectionResult>> processFrame(Uint8List frameData, int imageHeight, int imageWidth);
 
-  /// Process a camera frame and return detection results
-  Future<List<DetectionResult>> processFrame(
-      Uint8List frameData, int imageHeight, int imageWidth);
-
-  /// Get the current model being used
   BaseModel? get currentModel;
-
-  /// Get information about the current model
   String get serviceType;
 
   // Common functionality provided by base class

@@ -63,7 +63,6 @@ class MLKitPoseDetectionService extends BaseDetectionService {
     return landmarks;
   }
 
-
   @override
   void dispose() {
     _model.dispose();

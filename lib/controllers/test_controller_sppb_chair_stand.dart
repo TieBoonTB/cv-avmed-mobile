@@ -1,9 +1,10 @@
 import 'package:camera/src/camera_image.dart';
 import 'package:flutter/foundation.dart';
-import 'package:namer_app/types/detection_types.dart';
-import 'package:namer_app/utils/camera_image_utils.dart';
+import '../config/model_config.dart';
+import '../services/isolate_detection_service.dart';
+import '../types/detection_types.dart';
+import '../utils/camera_image_utils.dart';
 import 'base_test_controller.dart';
-import '../services/isolate_detection_classes.dart';
 import '../services/mlkit_pose_detection_service.dart';
 import '../services/sppb_analysis_service.dart';
 import '../services/base_detection_service.dart';
@@ -33,15 +34,14 @@ class TestControllerSPPBChairStand extends BaseTestController {
   DateTime? lastRepDetectionTime;
 
   /// Convenience getters for typed detection services
-  IsolateYOLOv5DetectionService get yoloService => detectionServices['objects'] as IsolateYOLOv5DetectionService;
+  BaseDetectionService get yoloService => detectionServices['objects'] as BaseDetectionService;
   MLKitPoseDetectionService get poseService => detectionServices['pose'] as MLKitPoseDetectionService;
   late final SPPBAnalysisService analysisService;
 
   @override
   Map<String, BaseDetectionService> createDetectionServices() {
     return {
-      'objects':
-          IsolateYOLOv5DetectionService(), // Use YOLOv5 for both chair and person detection
+      'objects': IsolateDetectionService(ModelType.yolov5s), 
       'pose': MLKitPoseDetectionService(),
     };
   }

@@ -15,8 +15,7 @@ class IsolateDetectionService extends BaseDetectionService {
   IsolateDetectionService(this._modelType);
 
   @override
-  String get serviceType =>
-      'Isolate-based ${ModelConfigurations.getModelInfo(_modelType).name} Detection';
+  String get serviceType => 'Isolate-based ${ModelConfigurations.getModelInfo(_modelType).name} Detection';
 
   @override
   BaseModel? get currentModel => null; // Model runs in isolate
