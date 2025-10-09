@@ -7,15 +7,13 @@ import '../models/base_model.dart';
 /// Different detection services can implement different logic for
 /// processing camera frames and managing detection streams
 abstract class BaseDetectionService {
-  final StreamController<List<DetectionResult>> _detectionController =
-      StreamController<List<DetectionResult>>.broadcast();
+  final StreamController<List<DetectionResult>> _detectionController = StreamController<List<DetectionResult>>.broadcast();
 
   bool _isInitialized = false;
   List<DetectionResult> _lastDetections = [];
 
   /// Stream of detection results
-  Stream<List<DetectionResult>> get detectionStream =>
-      _detectionController.stream;
+  Stream<List<DetectionResult>> get detectionStream => _detectionController.stream;
   bool get isInitialized => _isInitialized;
   List<DetectionResult> get lastDetections => _lastDetections;
 

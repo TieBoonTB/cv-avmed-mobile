@@ -166,15 +166,12 @@ class IsolateInferenceService {
   Future<Map<String, Uint8List>> _loadModelBytes(ModelType modelType) async {
     switch (modelType) {
       case ModelType.yolov5s:
-        final yoloBytes = await TFLiteUtils.loadModelBytesFromAsset(
-            ModelConfigurations.yolov5s.modelPath);
+        final yoloBytes = await TFLiteUtils.loadModelBytesFromAsset(ModelConfigurations.yolov5s.modelPath);
         return {'main': yoloBytes};
 
       case ModelType.avmed:
-        final mainBytes = await TFLiteUtils.loadModelBytesFromAsset(
-            ModelConfigurations.avmed.modelPath);
-        final faceBytes = await TFLiteUtils.loadModelBytesFromAsset(
-            'assets/models/face-detection_f16.tflite');
+        final mainBytes = await TFLiteUtils.loadModelBytesFromAsset(ModelConfigurations.avmed.modelPath);
+        final faceBytes = await TFLiteUtils.loadModelBytesFromAsset('assets/models/face-detection_f16.tflite');
         return {'main': mainBytes, 'face': faceBytes};
 
       case ModelType.mlkit:

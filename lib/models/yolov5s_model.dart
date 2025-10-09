@@ -88,7 +88,7 @@ class YOLOv5sModel extends BaseModel {
 
   @override
   Future<List<DetectionResult>> processFrame(
-      Uint8List frameData, int imageHeight, int imageWidth) async {
+    Uint8List frameData, int imageHeight, int imageWidth) async {
     if (!_isInitialized || _interpreter == null) {
       throw Exception('YOLOv5s model not initialized');
     }
@@ -110,8 +110,7 @@ class YOLOv5sModel extends BaseModel {
 
       // Convert image to input tensor
       var inputBytes = _imageToByteListFloat32(resizedImage);
-      var input = TFLiteUtils.reshapeInput4D(
-          inputBytes, modelInfo.inputHeight, modelInfo.inputWidth, 3);
+      var input = TFLiteUtils.reshapeInput4D(inputBytes, modelInfo.inputHeight, modelInfo.inputWidth, 3);
 
       // Create output tensor (YOLOv5s outputs [1, 6300, 85] for 320x320 input)
       var output = TFLiteUtils.createOutput3D(6300, 85);
@@ -197,14 +196,12 @@ class YOLOv5sModel extends BaseModel {
       final rawH = detection[3];
 
       // Determine whether the model outputs are normalized (0..1) or in pixel units
-      final outputsAreNormalized =
-          rawCx <= 1.0 && rawCy <= 1.0 && rawW <= 1.0 && rawH <= 1.0;
+      final outputsAreNormalized = rawCx <= 1.0 && rawCy <= 1.0 && rawW <= 1.0 && rawH <= 1.0;
 
       // Convert from model coordinates to normalized image coordinates (0..1)
-      final centerX =
-          outputsAreNormalized ? rawCx : rawCx / modelInfo.inputWidth;
-      final centerY =
-          outputsAreNormalized ? rawCy : rawCy / modelInfo.inputHeight;
+      final centerX = outputsAreNormalized ? rawCx : rawCx / modelInfo.inputWidth;
+      final centerY = outputsAreNormalized ? rawCy : rawCy / modelInfo.inputHeight;
+      
       final width = outputsAreNormalized ? rawW : rawW / modelInfo.inputWidth;
       final height = outputsAreNormalized ? rawH : rawH / modelInfo.inputHeight;
 
