@@ -196,9 +196,8 @@ class CameraImageUtils {
           final flippedImage = img.flipHorizontal(image);
           processedImage = flippedImage; // No rotation needed for iOS front camera
         } else {
-          // iOS back camera: Currently rotated 90° right, need to counter-rotate
-          // Rotate 270 degrees (or -90 degrees) to correct the 90° right rotation
-          processedImage = img.copyRotate(image, angle: 270);
+          // iOS back camera: No rotation needed, just use the image as-is
+          processedImage = image;
         }
       } else {
         // Android camera orientation handling (existing logic)
