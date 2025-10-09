@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart';
 import 'base_test_controller.dart';
 import '../services/base_detection_service.dart';
 import '../services/avmed_websocket_detection_service.dart';
-import '../types/detection_types.dart';
 import '../utils/step_constants.dart';
 import '../config/websocket_config.dart';
 import '../utils/websocket_utils.dart';

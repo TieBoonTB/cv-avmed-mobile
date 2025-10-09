@@ -124,12 +124,12 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _setupAnimations();
-    _initializeComponents();
+    _initAnimations();
+    _initComponents();
     _intervalCalculator = AdaptiveIntervalCalculator();
   }
 
-  void _setupAnimations() {
+  void _initAnimations() {
     _flashController = AnimationController(
       duration: const Duration(milliseconds: 1000),
       vsync: this,
@@ -141,7 +141,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     );
   }
 
-  Future<void> _initializeComponents() async {
+  Future<void> _initComponents() async {
     try {
       if (!mounted) return;
       setState(() {
@@ -157,7 +157,13 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       });
 
       // Create appropriate test controller based on type
-      _testController = _createTestController(widget.testType);
+      _testController = TestControllerFactory.createController(
+        type: widget.testType,
+        onTestUpdate: _onTestUpdate,
+        onTestComplete: _onTestComplete,
+        onStepComplete: _onStepComplete,
+      );
+
       await _testController!.initialize();
 
       // Align our frame interval with the controller's preferred value
@@ -185,19 +191,6 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       }
   }
 
-  BaseTestController _createTestController(TestType testType) {
-    return TestControllerFactory.createController(
-      type: testType,
-      onTestUpdate: _onTestUpdate,
-      onTestComplete: _onTestComplete,
-      onStepComplete: _onStepComplete,
-    );
-  }
-
-  void _startFrameProcessing() {
-    _startFrameTimer();
-  }
-
   void _startFrameTimer() {
     _frameTimer?.cancel();
     _frameTimer = Timer.periodic(
@@ -210,7 +203,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     });
   }
 
-  void _stopFrameProcessing() {
+  void _stopFrameTimer() {
     _frameTimer?.cancel();
   }
 
@@ -263,7 +256,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
 
   void _onTestComplete() {
     if (!mounted) return; // Add mounted check
-    _stopFrameProcessing();
+    _stopFrameTimer();
     // Stop the time remaining refresher when test completes
     _timeRemainingTimer?.cancel();
     _timeRemainingTimer = null;
@@ -389,6 +382,26 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     );
   }
 
+  /// Temporarily shows a centered message on screen.
+  /// Example: showCenterMessage('Hold the pill', duration: Duration(seconds: 2));
+  void showCenterMessage(String message, {Duration duration = const Duration(seconds: 2)}) {
+    // Cancel any existing timer so messages don't overlap
+    _centerMessageTimer?.cancel();
+
+    if (!mounted) return;
+
+    setState(() {
+      _centerMessage = message;
+    });
+
+    _centerMessageTimer = Timer(duration, () {
+      if (!mounted) return;
+      setState(() {
+        _centerMessage = null;
+      });
+    });
+  }
+
   String _getCompletionMessage() {
     if (_testController == null) return 'Test completed.';
 
@@ -431,31 +444,34 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     return message;
   }
 
+  String _getTestTitle() {
+    return TestControllerFactory.getTestDisplayName(widget.testType);
+  }
+
+  String _getStatusText() {
+    if (_testController == null) return 'Initializing...';
+
+    final testSteps = _testController!.testSteps;
+    final currentStepIndex = _testController!.currentStepIndex;
+
+    if (!_testController!.isTestRunning && !_testController!.isTestComplete) {
+      return 'Ready to start • ${testSteps.length} steps';
+    } else if (_testController!.isTestComplete) {
+      return 'Test completed successfully';
+    } else if (currentStepIndex < testSteps.length) {
+      final currentStep = testSteps[currentStepIndex];
+      final progress = (currentStep.progress * 100).toInt();
+      return 'Step ${currentStepIndex + 1}/${testSteps.length} • $progress% • ${currentStep.label}';
+    }
+
+    return 'Test in progress...';
+  }
+
   void _resetTest() {
     _testController?.stopTest();
     // Reset steps
     _testController?.testSteps.forEach((s) => s.reset());
     _updateInstructionVideo();
-  }
-
-  /// Temporarily shows a centered message on screen.
-  /// Example: showCenterMessage('Hold the pill', duration: Duration(seconds: 2));
-  void showCenterMessage(String message, {Duration duration = const Duration(seconds: 2)}) {
-    // Cancel any existing timer so messages don't overlap
-    _centerMessageTimer?.cancel();
-
-    if (!mounted) return;
-
-    setState(() {
-      _centerMessage = message;
-    });
-
-    _centerMessageTimer = Timer(duration, () {
-      if (!mounted) return;
-      setState(() {
-        _centerMessage = null;
-      });
-    });
   }
 
   void _startTest() {
@@ -468,7 +484,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     _frameProcessingInterval =
         _defaultFrameProcessingInterval; // Reset to starting interval
 
-    _startFrameProcessing();
+    _startFrameTimer();
     // Start a timer to refresh time-remaining UI frequently (smooth countdown)
     _timeRemainingTimer?.cancel();
     _timeRemainingTimer = Timer.periodic(
@@ -484,9 +500,9 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
     );
   }
 
-  void _forceStop() {
+  void _stopTest() {
     _testController?.stopTest();
-    _stopFrameProcessing();
+    _stopFrameTimer();
     // Stop the time remaining refresher
     _timeRemainingTimer?.cancel();
     _timeRemainingTimer = null;
@@ -495,7 +511,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
   @override
   void dispose() {
     // Stop frame processing first to prevent any ongoing operations
-    _stopFrameProcessing();
+    _stopFrameTimer();
 
     // Cancel time remaining timer
     _timeRemainingTimer?.cancel();
@@ -595,7 +611,6 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
       ),
     );
   }
-
 
   /// Helper to wrap content in camera preview sizing
   Widget _buildCameraContainer({required Widget child}) {
@@ -728,29 +743,6 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
         ],
       ),
     );
-  }
-
-  String _getTestTitle() {
-    return TestControllerFactory.getTestDisplayName(widget.testType);
-  }
-
-  String _getStatusText() {
-    if (_testController == null) return 'Initializing...';
-
-    final testSteps = _testController!.testSteps;
-    final currentStepIndex = _testController!.currentStepIndex;
-
-    if (!_testController!.isTestRunning && !_testController!.isTestComplete) {
-      return 'Ready to start • ${testSteps.length} steps';
-    } else if (_testController!.isTestComplete) {
-      return 'Test completed successfully';
-    } else if (currentStepIndex < testSteps.length) {
-      final currentStep = testSteps[currentStepIndex];
-      final progress = (currentStep.progress * 100).toInt();
-      return 'Step ${currentStepIndex + 1}/${testSteps.length} • $progress% • ${currentStep.label}';
-    }
-
-    return 'Test in progress...';
   }
 
   Widget _buildInstructionVideo() {
@@ -1070,7 +1062,7 @@ class _CameraPageState extends State<CameraPage> with TickerProviderStateMixin {
         Expanded(
           child: ElevatedButton(
             onPressed: _testController?.isTestRunning == true
-                ? _forceStop
+                ? _stopTest
                 : _startTest,
             style: ElevatedButton.styleFrom(
               backgroundColor: _testController?.isTestRunning == true
