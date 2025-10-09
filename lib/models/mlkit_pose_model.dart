@@ -12,7 +12,7 @@ class MLKitPoseModel extends BaseModel {
   bool _isInitialized = false;
 
   @override
-  ModelInfo get modelInfo => ModelConfigurations.mediapipe;
+  ModelInfo get modelInfo => ModelConfigurations.mlkit;
 
   @override
   bool get isInitialized => _isInitialized;

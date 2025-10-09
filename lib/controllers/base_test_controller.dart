@@ -50,7 +50,6 @@ abstract class BaseTestController {
     _frameProcessingIntervalMs = ms;
   }
 
-
   /// Abstract method that must be implemented by subclasses
   /// Returns a map of service names to detection services
   /// Example: {'pose': MLKitPoseService(), 'objects': YoloService()}
@@ -109,7 +108,6 @@ abstract class BaseTestController {
       if (imageBytes.isNotEmpty) {
         // Process frame through all detection services
         for (final entry in _detectionServices.entries) {
-          final serviceKey = entry.key;
           final service = entry.value;
 
           if (service.isInitialized) {
@@ -119,11 +117,11 @@ abstract class BaseTestController {
               cameraImage.height,
               cameraImage.width,
             );
-
-            // Update cached detections for this service
-            _lastDetections[serviceKey] = await service.getCurrentDetections();
           }
         }
+
+          // Update cached detections from each service (override to customize)
+          await updateLastDetections();
       }
     } catch (e) {
       print('Error processing camera frame: $e');
@@ -137,6 +135,30 @@ abstract class BaseTestController {
         await processTestStep();
       } catch (e) {
         print('Error in processTestStep: $e');
+      }
+    }
+  }
+
+  /// Aggregate detections from each configured detection service into
+  /// the internal `_lastDetections` map.
+  /// Subclasses may override this method to customize how detections are combined
+  @protected
+  Future<void> updateLastDetections() async {
+    if (_isDisposed) return;
+
+    // Ensure map contains all keys
+    for (final key in _detectionServices.keys) {
+      _lastDetections.putIfAbsent(key, () => []);
+    }
+
+    // Read and assign detections for each service
+    for (final entry in _detectionServices.entries) {
+      final key = entry.key;
+      final service = entry.value;
+      if (service.isInitialized) {
+        _lastDetections[key] = await service.getCurrentDetections();
+      } else {
+        _lastDetections[key] = [];
       }
     }
   }
@@ -261,14 +283,6 @@ abstract class BaseTestController {
     });
   }
 
-  /// Returns time remaining for the current step as a percentage (0-100).
-  /// Returns -1.0 if the current step is not timed or not started.
-  double getCurrentStepTimeRemainingPercent() {
-    final step = currentStep;
-    if (step == null) return -1.0;
-    return step.timeRemainingPercent();
-  }
-
   /// Stop the test sequence
   void stopTest() {
     _isTestRunning = false;
@@ -305,6 +319,14 @@ abstract class BaseTestController {
 
     // Start the next step
     steps[_currentStepIndex].start();
+  }
+
+  /// Returns time remaining for the current step as a percentage (0-100).
+  /// Returns -1.0 if the current step is not timed or not started.
+  double getCurrentStepTimeRemainingPercent() {
+    final step = currentStep;
+    if (step == null) return -1.0;
+    return step.timeRemainingPercent();
   }
 
   /// Safe callback invocation that checks disposal state. 

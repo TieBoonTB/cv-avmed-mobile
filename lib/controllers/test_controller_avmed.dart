@@ -25,8 +25,30 @@ class TestControllerAVMed extends BaseTestController {
   Map<String, BaseDetectionService> createDetectionServices() {
     return {
       'objects': IsolateDetectionService(ModelType.avmed),
+      'face': IsolateDetectionService(ModelType.face_detection)
     };
   }
+
+  @override
+  Future<void> updateLastDetections() async {
+    // Read the latest detections directly from the underlying services
+    // and merge face detections into the controller's 'objects' list.
+    final faceDetections = await detectionServices['face']?.getCurrentDetections() ?? [];
+    final objectDetectionsFromService = await detectionServices['objects']?.getCurrentDetections() ?? [];
+
+    // Mutate the controller's stored objects list (returned by getDetections)
+    // so observers retain the same list instance.
+    final objectList = getDetections('objects');
+    objectList.clear();
+    objectList.addAll(objectDetectionsFromService);
+    if (faceDetections.isNotEmpty) {
+      objectList.addAll(faceDetections);
+    }
+
+    // Notify UI about the updated aggregated results
+    safeCallback(onTestUpdate);
+  }
+
 
   @override
   List<TestStep> createTestSteps() {

@@ -23,6 +23,7 @@ class ModelInfo {
 enum ModelType {
   yolov5s,
   avmed,
+  face_detection,
   mlkit,
 }
 
@@ -50,7 +51,7 @@ class ModelConfigurations {
   );
 
   static const ModelInfo avmed = ModelInfo(
-    name: 'AVMED Dual Model',
+    name: 'AVMED',
     version: '16-12-24',
     supportedLabels: [
       "pill", "pill on tongue", "no pill on tongue", "drink water", 
@@ -62,33 +63,16 @@ class ModelConfigurations {
     modelPath: 'assets/models/av_med_16-12-24_f16.tflite',
   );
   
-  static const ModelInfo mediapipe = ModelInfo(
-    name: 'MediaPipe Pose Landmark Full',
+  static const ModelInfo faceDetection = ModelInfo(
+    name: 'Face Detection',
     version: '1.0.0',
-    supportedLabels: [
-      'nose', 'left_eye_inner', 'left_eye', 'left_eye_outer', 'right_eye_inner', 'right_eye',
-      'right_eye_outer', 'left_ear', 'right_ear', 'mouth_left', 'mouth_right',
-      'left_shoulder', 'right_shoulder', 'left_elbow', 'right_elbow', 'left_wrist', 'right_wrist',
-      'left_pinky', 'right_pinky', 'left_index', 'right_index', 'left_thumb', 'right_thumb',
-      'left_hip', 'right_hip', 'left_knee', 'right_knee', 'left_ankle', 'right_ankle',
-      'left_heel', 'right_heel', 'left_foot_index', 'right_foot_index'
-    ],
-    defaultConfidenceThreshold: 0.3,
-    inputWidth: 256,
-    inputHeight: 256,
-    modelPath: 'assets/models/pose_landmark_full.tflite',
+    supportedLabels: ['face'],
+    defaultConfidenceThreshold: 0.5,
+    inputWidth: 224,
+    inputHeight: 224,
+    modelPath: 'assets/models/face-detection_f16.tflite',
   );
-
-  static const ModelInfo sppbAnalysis = ModelInfo(
-    name: 'SPPB Clinical Analysis',
-    version: '1.0.0',
-    supportedLabels: ['hip_angle', 'movement_phase', 'repetition_count'],
-    defaultConfidenceThreshold: 0.7,
-    inputWidth: 0, // Analysis model doesn't need image input
-    inputHeight: 0,
-    modelPath: '', // No model file needed for analysis
-  );
-
+  
   static const ModelInfo mlkit = ModelInfo(
     name: 'ML Kit Pose Detection',
     version: '1.0.0',
@@ -112,6 +96,8 @@ class ModelConfigurations {
         return yolov5s;
       case ModelType.avmed:
         return avmed;
+      case ModelType.face_detection:
+      return faceDetection;
       case ModelType.mlkit:
         return mlkit;
     }

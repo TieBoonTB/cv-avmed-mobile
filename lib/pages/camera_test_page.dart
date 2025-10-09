@@ -22,16 +22,11 @@ class CameraTestPage extends StatefulWidget {
 
 class _CameraTestPageState extends State<CameraTestPage> {
   // Camera controller
-  final CameraFeedController _cameraController =
-      Get.put(CameraFeedController());
+  final CameraFeedController _cameraController = Get.put(CameraFeedController());
 
-  // Detection services (isolate-based and SPPB services)
-  BaseDetectionService? _isolateYolov5Service;
-  BaseDetectionService? _isolateAvmedService;
-  MLKitPoseDetectionService? _isolatePoseDetectionService;
-  BaseDetectionService? _currentDetectionService;
-  DetectionModel _currentModel =
-      DetectionModel.yolov5; // Start with YOLOv5 by default
+  // Detection services stored in a map by key
+  final Map<String, BaseDetectionService?> _detectionServicesMap = {};
+  String _currentModelKey = 'yolov5'; // default key
   bool _isDetectionServiceReady = false;
 
   // Detection testing variables
@@ -51,170 +46,62 @@ class _CameraTestPageState extends State<CameraTestPage> {
   void _setupDetectionService() async {
     try {
       print('Initializing detection services...');
+      // Initialize services map
+      _detectionServicesMap['yolov5'] = IsolateDetectionService(ModelType.yolov5s);
+      _detectionServicesMap['avmed'] = IsolateDetectionService(ModelType.avmed);
+      _detectionServicesMap['face'] = IsolateDetectionService(ModelType.face_detection);
+      _detectionServicesMap['pose'] = MLKitPoseDetectionService();
 
-      // Initialize isolate-based services
-      _isolateYolov5Service = IsolateDetectionService(ModelType.yolov5s);
-      _isolateAvmedService = IsolateDetectionService(ModelType.avmed);
+      final results = <String, bool>{};
 
-      // Initialize isolate SPPB services
-      _isolatePoseDetectionService = MLKitPoseDetectionService();
+      // Initialize each service and record success
+      for (final entry in _detectionServicesMap.entries) {
+        final key = entry.key;
+        final service = entry.value;
+        if (service == null) {
+          results[key] = false;
+          continue;
+        }
 
-      bool yolov5Success = false;
-      bool avmedSuccess = false;
-      bool poseSuccess = false;
-
-      try {
-        await _isolateYolov5Service?.initialize();
-        print('Isolate YOLOv5 service initialized');
-        yolov5Success = true;
-      } catch (e) {
-        print('Failed to initialize isolate YOLOv5 service: $e');
-      }
-
-      try {
-        await _isolateAvmedService?.initialize();
-        print('Isolate AVMED service initialized');
-        avmedSuccess = true;
-      } catch (e) {
-        print('Failed to initialize isolate AVMED service: $e');
-      }
-
-      try {
-        await _isolatePoseDetectionService?.initialize();
-        print('Isolate Pose Detection service initialized');
-        poseSuccess = true;
-      } catch (e) {
-        print('Failed to initialize isolate Pose Detection service: $e');
+        try {
+          await service.initialize();
+          results[key] = true;
+          print('Initialized service: $key');
+        } catch (e) {
+          results[key] = false;
+          print('Failed to initialize $key: $e');
+        }
       }
 
       print('Service initialization results:');
-      print('  YOLOv5: ${yolov5Success ? "✅" : "❌"}');
-      print('  AVMED: ${avmedSuccess ? "✅" : "❌"}');
-      print('  Pose Detection: ${poseSuccess ? "✅" : "❌"}');
+      results.forEach((k, v) => print('  $k: ${v ? "✅" : "❌"}'));
 
-      if (yolov5Success || avmedSuccess || poseSuccess) {
-        // Set initial service based on current model
-        _updateCurrentService();
+      // Set initial current model key if the corresponding service is ready
+      if (results[_currentModelKey] != true) {
+        final firstReady = results.entries.firstWhere((e) => e.value, orElse: () => const MapEntry('', false));
+        if (firstReady.key.isNotEmpty) {
+          _currentModelKey = firstReady.key;
+        }
       }
 
       setState(() {
-        _isDetectionServiceReady =
-            _currentDetectionService?.isInitialized ?? false;
+        _isDetectionServiceReady = _detectionServicesMap[_currentModelKey]?.isInitialized ?? false;
       });
 
-      print(
-          'Detection service setup complete. Ready: $_isDetectionServiceReady');
+      print('Detection service setup complete. Ready: $_isDetectionServiceReady');
     } catch (e) {
       _showMessage(
           'Failed to initialize detection models. Please try restarting the page.');
 
       // Ensure partial services are cleaned up
       try {
-        _isolateYolov5Service?.dispose();
-        _isolateAvmedService?.dispose();
-        _isolatePoseDetectionService?.dispose();
+        for (final s in _detectionServicesMap.values) {
+          s?.dispose();
+        }
       } catch (_) {}
     }
   }
-
-  /// Update the current detection service based on selected model
-  void _updateCurrentService() {
-    switch (_currentModel) {
-      case DetectionModel.yolov5:
-        _currentDetectionService = _isolateYolov5Service?.isInitialized == true
-            ? _isolateYolov5Service
-            : null;
-        break;
-      case DetectionModel.avmed:
-        _currentDetectionService = _isolateAvmedService?.isInitialized == true
-            ? _isolateAvmedService
-            : null;
-        break;
-      case DetectionModel.poseDetection:
-        _currentDetectionService =
-            _isolatePoseDetectionService?.isInitialized == true
-                ? _isolatePoseDetectionService
-                : null;
-        break;
-    }
-  }
-
-  /// Toggle between detection models (YOLOv5, AVMED, Chair Detection, Pose Detection)
-  void _toggleDetectionModel() {
-    if (!_isDetectionServiceReady) {
-      _showMessage('Detection services not ready yet');
-      return;
-    }
-
-    // Stop detection if running
-    bool wasRunning = _isDetectionRunning;
-    if (wasRunning) {
-      _stopDetectionTesting();
-    }
-
-    setState(() {
-      // Cycle through all available models
-      switch (_currentModel) {
-        case DetectionModel.yolov5:
-          _currentModel = DetectionModel.avmed;
-          break;
-        case DetectionModel.avmed:
-          _currentModel = DetectionModel.poseDetection;
-          break;
-        case DetectionModel.poseDetection:
-          _currentModel = DetectionModel.yolov5;
-          break;
-      }
-
-      _updateCurrentService();
-
-      // Reset statistics when switching models
-      _lastDetections.clear();
-    });
-
-    _showMessage('Switched to ${_getCurrentModelName()} model');
-
-    // Restart detection if it was running
-    if (wasRunning) {
-      _startDetectionTesting();
-    }
-  }
-
-  /// Get current model name for display
-  String _getCurrentModelName() {
-    switch (_currentModel) {
-      case DetectionModel.yolov5:
-        return 'YOLOv5';
-      case DetectionModel.avmed:
-        return 'AVMED';
-      case DetectionModel.poseDetection:
-        return 'Pose Detection';
-    }
-  }
-
-  /// Get color for current model
-  Color _getModelColor() {
-    switch (_currentModel) {
-      case DetectionModel.yolov5:
-        return Colors.blue.withValues(alpha: 0.8);
-      case DetectionModel.avmed:
-        return Colors.purple.withValues(alpha: 0.8);
-      case DetectionModel.poseDetection:
-        return Colors.orange.withValues(alpha: 0.8);
-    }
-  }
-
-  /// Get icon for current model
-  IconData _getModelIcon() {
-    switch (_currentModel) {
-      case DetectionModel.yolov5:
-        return Icons.visibility;
-      case DetectionModel.avmed:
-        return Icons.science;
-      case DetectionModel.poseDetection:
-        return Icons.accessibility_new;
-    }
-  }
+  
 
   /// Start object detection testing
   void _startDetectionTesting() {
@@ -282,8 +169,9 @@ class _CameraTestPageState extends State<CameraTestPage> {
         return;
       }
 
-      // Run object detection
-      final results = await _currentDetectionService?.processFrame(
+      // Run the currently selected service from the map
+      final service = _detectionServicesMap[_currentModelKey];
+      final results = await service?.processFrame(
             imageBytes,
             currentImage.height,
             currentImage.width,
@@ -316,8 +204,9 @@ class _CameraTestPageState extends State<CameraTestPage> {
 
     // Safely dispose of all detection services
     try {
-      _isolateYolov5Service?.dispose();
-      _isolateAvmedService?.dispose();
+      for (final s in _detectionServicesMap.values) {
+        s?.dispose();
+      }
     } catch (e) {
       print("Error disposing detection services: $e");
     }
@@ -392,6 +281,31 @@ class _CameraTestPageState extends State<CameraTestPage> {
                               color: Colors.white70, fontSize: 12),
                         ),
                       ],
+                      const SizedBox(height: 8),
+                      // Dropdown to choose active model
+                      Row(
+                        children: [
+                          const Text('Model:', style: TextStyle(color: Colors.white70)),
+                          const SizedBox(width: 8),
+                          DropdownButton<String>(
+                            dropdownColor: Colors.black,
+                            value: _currentModelKey,
+                            items: _detectionServicesMap.keys.map((k) {
+                              return DropdownMenuItem<String>(
+                                value: k,
+                                child: Text(k, style: const TextStyle(color: Colors.white)),
+                              );
+                            }).toList(),
+                            onChanged: (v) {
+                              if (v == null) return;
+                              setState(() {
+                                _currentModelKey = v;
+                                _lastDetections.clear();
+                              });
+                            },
+                          ),
+                        ],
+                      ),
                     ],
                   )),
             ),
@@ -425,42 +339,7 @@ class _CameraTestPageState extends State<CameraTestPage> {
             ),
           ),
 
-          // Model toggle button (AVMED/YOLOv5)
-          Positioned(
-            top: 260,
-            right: 20,
-            child: Container(
-              decoration: BoxDecoration(
-                color: _getModelColor(),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: MaterialButton(
-                onPressed: _toggleDetectionModel,
-                minWidth: 0,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      _getModelIcon(),
-                      color: Colors.white,
-                      size: 16,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      _getCurrentModelName(),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+          
         ],
       ),
     );
@@ -479,7 +358,7 @@ class _CameraTestPageState extends State<CameraTestPage> {
           child: _buildProcessedImageDebugView(),
         ),
         // If current model is poseDetection and we have detections, overlay MLKit painter
-        if (_currentModel == DetectionModel.poseDetection)
+        if (_currentModelKey == 'pose')
           Positioned.fill(
             child: IgnorePointer(
               child: CustomPaint(
@@ -493,8 +372,7 @@ class _CameraTestPageState extends State<CameraTestPage> {
           ),
 
         // For other detection models that output bounding boxes, overlay box painter
-        if (_currentModel != DetectionModel.poseDetection &&
-            _lastDetections.isNotEmpty)
+        if (_currentModelKey != 'pose' && _lastDetections.isNotEmpty)
           Positioned.fill(
             child: IgnorePointer(
               child: LayoutBuilder(builder: (context, constraints) {

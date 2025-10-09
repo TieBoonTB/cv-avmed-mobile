@@ -171,12 +171,16 @@ class IsolateInferenceService {
 
       case ModelType.avmed:
         final mainBytes = await TFLiteUtils.loadModelBytesFromAsset(ModelConfigurations.avmed.modelPath);
+        return {'main': mainBytes};
+
+      case ModelType.face_detection:
         final faceBytes = await TFLiteUtils.loadModelBytesFromAsset('assets/models/face-detection_f16.tflite');
-        return {'main': mainBytes, 'face': faceBytes};
+        return {'main': faceBytes};
 
       case ModelType.mlkit:
         // ML Kit doesn't need asset bytes
         return {};
+
     }
   }
 

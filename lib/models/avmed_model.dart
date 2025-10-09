@@ -11,8 +11,7 @@ import '../utils/camera_image_utils.dart';
 /// AVMED model for on-device medication adherence detection
 /// Implements dual model inference (main detection + face detection)
 class AVMedModel extends BaseModel {
-  Interpreter? _mainDetectionInterpreter;
-  Interpreter? _faceDetectionInterpreter;
+  Interpreter? _interpreter;
   bool _isInitialized = false;
 
   @override
@@ -27,16 +26,11 @@ class AVMedModel extends BaseModel {
       print('Initializing AVMED dual model system...');
       
       // Initialize main detection model
-      _mainDetectionInterpreter = await _loadModel('assets/models/av_med_16-12-24_f16.tflite');
+      _interpreter = await _loadModel(modelInfo.modelPath);
       print('Main detection model loaded successfully');
       
-      // Initialize face detection model  
-      _faceDetectionInterpreter = await _loadModel('assets/models/face-detection_f16.tflite');
-      print('Face detection model loaded successfully');
-      
-      // Validate models
-      if (_mainDetectionInterpreter != null && _faceDetectionInterpreter != null) {
-        _printModelInfo();
+      // Validate model
+      if (_interpreter != null) {
         _isInitialized = true;
         print('AVMED model system initialized successfully');
       } else {
@@ -49,21 +43,17 @@ class AVMedModel extends BaseModel {
   }
 
   /// Initialize model with bytes (for isolate use)
-  Future<void> initializeWithBytes(Uint8List mainModelBytes, Uint8List faceModelBytes) async {
+  Future<void> initializeWithBytes(Uint8List mainModelBytes) async {
     try {
       print('[ISOLATE] Initializing AVMED dual model system from bytes...');
       
       // Initialize main detection model from bytes
-      _mainDetectionInterpreter = TFLiteUtils.createInterpreterFromBytes(mainModelBytes);
+      _interpreter = TFLiteUtils.createInterpreterFromBytes(mainModelBytes);
       print('[ISOLATE] Main detection model loaded successfully');
       
       // Initialize face detection model from bytes
-      _faceDetectionInterpreter = TFLiteUtils.createInterpreterFromBytes(faceModelBytes);
-      print('[ISOLATE] Face detection model loaded successfully');
-      
       // Validate models
-      if (_mainDetectionInterpreter != null && _faceDetectionInterpreter != null) {
-        _printModelInfo();
+      if (_interpreter != null) {
         _isInitialized = true;
         print('[ISOLATE] AVMED model system initialized successfully');
       } else {
@@ -81,24 +71,6 @@ class AVMedModel extends BaseModel {
     } catch (e) {
       print('Error loading model from $modelPath: $e');
       rethrow;
-    }
-  }
-
-  void _printModelInfo() {
-    if (_mainDetectionInterpreter != null) {
-      final mainInputs = _mainDetectionInterpreter!.getInputTensors();
-      final mainOutputs = _mainDetectionInterpreter!.getOutputTensors();
-      print('Main Detection Model:');
-      print('  Input shape: ${mainInputs.isNotEmpty ? mainInputs.first.shape : 'Unknown'}');
-      print('  Output shape: ${mainOutputs.isNotEmpty ? mainOutputs.first.shape : 'Unknown'}');
-    }
-    
-    if (_faceDetectionInterpreter != null) {
-      final faceInputs = _faceDetectionInterpreter!.getInputTensors();
-      final faceOutputs = _faceDetectionInterpreter!.getOutputTensors();
-      print('Face Detection Model:');
-      print('  Input shape: ${faceInputs.isNotEmpty ? faceInputs.first.shape : 'Unknown'}');
-      print('  Output shape: ${faceOutputs.isNotEmpty ? faceOutputs.first.shape : 'Unknown'}');
     }
   }
 
@@ -124,12 +96,10 @@ class AVMedModel extends BaseModel {
       
       // Run dual model inference
       final mainDetections = await _runMainDetection(preprocessed, imageWidth, imageHeight);
-      final faceDetections = await _runFaceDetection(preprocessed, imageWidth, imageHeight);
       
       // Combine results
       final allDetections = <DetectionResult>[];
       allDetections.addAll(mainDetections);
-      allDetections.addAll(faceDetections);
       
       return allDetections;
     } catch (e) {
@@ -146,10 +116,10 @@ class AVMedModel extends BaseModel {
       final inputTensor = TFLiteUtils.reshapeInput4D(input, modelInfo.inputHeight, modelInfo.inputWidth, 3);
       
       // Create output tensor for main detection
-      var output = TFLiteUtils.createOutputForModel(_mainDetectionInterpreter!);
+      var output = TFLiteUtils.createOutputForModel(_interpreter!);
       
       // Run inference
-      final success = TFLiteUtils.runInference(_mainDetectionInterpreter!, inputTensor, output);
+      final success = TFLiteUtils.runInference(_interpreter!, inputTensor, output);
       if (!success) {
         print('Main detection inference failed');
         return [];
@@ -163,30 +133,6 @@ class AVMedModel extends BaseModel {
     }
   }
 
-  /// Run face detection inference
-  /// Based on: face detection logic with confidence 0.7, NMS 0.5
-  Future<List<DetectionResult>> _runFaceDetection(Float32List input, int originalWidth, int originalHeight) async {
-    try {
-      // Create input tensor - both models use same 224x224 input size
-      final inputTensor = TFLiteUtils.reshapeInput4D(input, modelInfo.inputHeight, modelInfo.inputWidth, 3);
-      
-      // Create output tensor for face detection
-      var output = TFLiteUtils.createOutputForModel(_faceDetectionInterpreter!);
-      
-      // Run inference
-      final success = TFLiteUtils.runInference(_faceDetectionInterpreter!, inputTensor, output);
-      if (!success) {
-        print('Face detection inference failed');
-        return [];
-      }
-      
-      // Process face detection results with NMS
-      return _processFaceDetectionOutput(output, originalWidth, originalHeight);
-    } catch (e) {
-      print('Error in face detection inference: $e');
-      return [];
-    }
-  }
 
   /// Process main detection output
   /// Extract: x1, y1, x2, y2, conf, cls and normalize coordinates
@@ -226,43 +172,7 @@ class AVMedModel extends BaseModel {
     }
   }
 
-  /// Process face detection output with NMS
-  /// Apply non-max suppression and convert coordinates to relative values
-  List<DetectionResult> _processFaceDetectionOutput(dynamic output, int originalWidth, int originalHeight) {
-    try {
-      // Parse output using YOLOv8 parser for consistency with main detection
-      final rawDetections = _processOutput(
-        output,
-        modelInfo.defaultConfidenceThreshold,
-        ['face'], // Face detection only detects faces
-        originalWidth,
-        originalHeight,
-        modelInfo.inputWidth,
-        modelInfo.inputHeight,
-      );
-      
-      // Apply Non-Maximum Suppression using consolidated utilities
-      final nmsDetections = TFLiteUtils.applyNMS(rawDetections, 0.45);
-      
-      // Convert to DetectionResult objects
-      return nmsDetections.map((detection) {
-        final box = detection['box'] as Map<String, double>;
-        return DetectionResult(
-          label: detection['label'] as String,
-          confidence: detection['confidence'] as double,
-          box: DetectionBox(
-            x: box['x']!,
-            y: box['y']!,
-            width: box['width']!,
-            height: box['height']!,
-          ),
-        );
-      }).toList();
-    } catch (e) {
-      print('Error processing face detection output: $e');
-      return [];
-    }
-  }
+  
 
   /// YOLOv8-style parser..
   List<Map<String, dynamic>> _processOutput(
@@ -434,10 +344,9 @@ class AVMedModel extends BaseModel {
 
   @override
   void dispose() {
-    _mainDetectionInterpreter?.close();
-    _faceDetectionInterpreter?.close();
-    _mainDetectionInterpreter = null;
-    _faceDetectionInterpreter = null;
+    _interpreter?.close();
+    _interpreter = null;
+    
     _isInitialized = false;
     print('AVMED model disposed');
   }
