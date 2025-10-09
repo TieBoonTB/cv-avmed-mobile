@@ -177,19 +177,9 @@ class IsolateInferenceService {
             'assets/models/face-detection_f16.tflite');
         return {'main': mainBytes, 'face': faceBytes};
 
-      case ModelType.mediapipe:
-        final poseBytes = await TFLiteUtils.loadModelBytesFromAsset(
-            ModelConfigurations.mediapipe.modelPath);
-        return {'main': poseBytes};
-
       case ModelType.mlkit:
         // ML Kit doesn't need asset bytes
         return {};
-
-      case ModelType.sppbAnalysis:
-        final poseBytes2 = await TFLiteUtils.loadModelBytesFromAsset(
-            ModelConfigurations.mediapipe.modelPath);
-        return {'main': poseBytes2};
     }
   }
 

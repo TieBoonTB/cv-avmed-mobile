@@ -23,9 +23,7 @@ class ModelInfo {
 enum ModelType {
   yolov5s,
   avmed,
-  mediapipe,
   mlkit,
-  sppbAnalysis,
 }
 
 /// Centralized model configurations
@@ -114,12 +112,8 @@ class ModelConfigurations {
         return yolov5s;
       case ModelType.avmed:
         return avmed;
-      case ModelType.mediapipe:
-        return mediapipe;
       case ModelType.mlkit:
         return mlkit;
-      case ModelType.sppbAnalysis:
-        return sppbAnalysis;
     }
   }
 }

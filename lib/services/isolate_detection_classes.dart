@@ -1,6 +1,3 @@
-import 'dart:typed_data';
-
-import '../types/detection_types.dart';
 import '../config/model_config.dart';
 import 'isolate_detection_service.dart';
 
@@ -12,9 +9,4 @@ class IsolateYOLOv5DetectionService extends IsolateDetectionService {
 /// AVMED detection service using isolates
 class IsolateAVMedDetectionService extends IsolateDetectionService {
   IsolateAVMedDetectionService() : super(ModelType.avmed);
-}
-
-/// Pose detection service using isolates
-class IsolatePoseDetectionService extends IsolateDetectionService {
-  IsolatePoseDetectionService() : super(ModelType.mediapipe);
 }

@@ -4,7 +4,6 @@ import 'dart:typed_data';
 
 import '../models/yolov5s_model.dart';
 import '../models/avmed_model.dart';
-import '../models/mediapipe_pose_model.dart';
 import '../models/base_model.dart';
 import '../types/detection_types.dart';
 import '../config/model_config.dart';
@@ -83,18 +82,6 @@ class InferenceIsolateWorker {
           // Initialize with both model bytes
           await (_model as AVMedModel).initializeWithBytes(
               modelBytesMap['main']!, modelBytesMap['face']!);
-
-        case ModelType.mediapipe:
-          _model = MediaPipePoseModel();
-          // Initialize with model bytes
-          await (_model as MediaPipePoseModel)
-              .initializeWithBytes(modelBytesMap['main']!);
-
-        case ModelType.sppbAnalysis:
-          _model = MediaPipePoseModel();
-          // Initialize with model bytes
-          await (_model as MediaPipePoseModel)
-              .initializeWithBytes(modelBytesMap['main']!);
 
         case ModelType.mlkit:
           throw Exception('Model type $modelType not yet implemented in isolate worker');
